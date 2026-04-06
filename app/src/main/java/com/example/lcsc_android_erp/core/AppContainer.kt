@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
 import com.example.lcsc_android_erp.core.database.AppDatabase
 import com.example.lcsc_android_erp.core.datastore.UserPreferencesRepository
+import com.example.lcsc_android_erp.core.printer.Q5PrinterManager
 import com.example.lcsc_android_erp.data.remote.LcscCatalogRemoteDataSource
 import com.example.lcsc_android_erp.data.repository.ComponentImageStore
 import com.example.lcsc_android_erp.data.repository.InventoryBackupManager
@@ -73,4 +74,6 @@ class AppContainer(context: Context) {
     val lcscCatalogRepository: LcscCatalogRepository = LcscCatalogRepositoryImpl(
         remoteDataSource = LcscCatalogRemoteDataSource(okHttpClient)
     )
+
+    val q5PrinterManager = Q5PrinterManager(appContext)
 }

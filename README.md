@@ -33,7 +33,7 @@
 - Android Studio 最新稳定版
 - JDK 11
 - Android SDK 36
-- 设备 / 模拟器 Android 13 及以上
+- 设备 / 模拟器 Android 11 及以上
 
 ## 快速开始
 

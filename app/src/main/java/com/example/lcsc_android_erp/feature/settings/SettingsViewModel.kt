@@ -33,7 +33,8 @@ class SettingsViewModel(
         screenState
     ) { preferences, state ->
         state.copy(
-            selectedLanguageTag = preferences.appLanguageTag
+            selectedLanguageTag = preferences.appLanguageTag,
+            content = SettingsContentLoader.load(appContext, preferences.appLanguageTag)
         )
     }.stateIn(
         scope = viewModelScope,

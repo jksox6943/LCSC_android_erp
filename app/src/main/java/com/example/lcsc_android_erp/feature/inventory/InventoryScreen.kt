@@ -1,6 +1,7 @@
 package com.example.lcsc_android_erp.feature.inventory
 
 import android.Manifest
+import android.graphics.Bitmap
 import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -8,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -50,9 +52,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -66,6 +68,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +89,8 @@ import coil3.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import com.example.lcsc_android_erp.LcscApplication
 import com.example.lcsc_android_erp.R
+import com.example.lcsc_android_erp.core.printer.PrinterConnectionState
+import com.example.lcsc_android_erp.core.printer.Q5PrinterManager
 import com.example.lcsc_android_erp.core.ui.performCopyFeedback
 import com.example.lcsc_android_erp.domain.model.ComponentDetail
 import com.example.lcsc_android_erp.domain.model.LocationInventoryItem
@@ -103,6 +108,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.launch
 
 @Composable
 fun InventoryRoute(
@@ -122,6 +128,7 @@ fun InventoryRoute(
     InventoryScreen(
         modifier = modifier,
         uiState = uiState.value,
+        q5PrinterManager = appContainer.q5PrinterManager,
         onLocationSelected = viewModel::onLocationSelected,
         onDismissLocationDetail = viewModel::dismissLocationDetail,
         onOpenLocationSettings = viewModel::openLocationSettings,
@@ -145,6 +152,7 @@ fun InventoryRoute(
 @Composable
 fun InventoryScreen(
     uiState: InventoryUiState,
+    q5PrinterManager: Q5PrinterManager,
     onLocationSelected: (StockLocationCell) -> Unit,
     onDismissLocationDetail: () -> Unit,
     onOpenLocationSettings: (Long) -> Unit,
@@ -250,6 +258,7 @@ fun InventoryScreen(
             uiState = uiState,
             cell = uiState.selectedLocation,
             items = uiState.selectedLocationItems,
+            q5PrinterManager = q5PrinterManager,
             onBack = onDismissLocationDetail,
             onSave = onUpdateLocation,
             onClearUpdateLocationError = onClearUpdateLocationError,
@@ -531,6 +540,7 @@ private fun InventoryLocationDetailScreen(
     uiState: InventoryUiState,
     cell: StockLocationCell,
     items: List<LocationInventoryItem>,
+    q5PrinterManager: Q5PrinterManager,
     onBack: () -> Unit,
     onSave: (Long, String, String?, String?, String, (String?) -> Unit) -> Unit,
     onClearUpdateLocationError: () -> Unit,
@@ -546,8 +556,15 @@ private fun InventoryLocationDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val printerState by q5PrinterManager.state.collectAsStateWithLifecycle()
     var showSettingsDialog by remember(cell.id) { mutableStateOf(false) }
     var showScanAddDialog by remember(cell.id) { mutableStateOf(false) }
+    var showPrintLabelDialog by remember(cell.id) { mutableStateOf(false) }
+    var locationLabelBitmap by remember(cell.id) { mutableStateOf<Bitmap?>(null) }
+    var locationLabelLoading by remember(cell.id) { mutableStateOf(false) }
+    var locationLabelSaving by remember(cell.id) { mutableStateOf(false) }
+    var locationLabelPrinting by remember(cell.id) { mutableStateOf(false) }
     val headerBadgeColor = parseColorOrDefault(cell.colorHex)
     val headerBadgeContentColor = contentColorForLocationCard(headerBadgeColor)
     var selectedItem by remember(cell.id) {
@@ -575,6 +592,27 @@ private fun InventoryLocationDetailScreen(
         if (selectedItem?.inventoryItemId !in validIds) {
             selectedItem = null
         }
+    }
+
+    LaunchedEffect(showPrintLabelDialog, cell.id, items.size) {
+        if (!showPrintLabelDialog) {
+            return@LaunchedEffect
+        }
+        LocationLabelExporter.createPreviewBitmap(
+            context = context,
+            cell = cell,
+            inventoryCount = items.size
+        ).onSuccess { bitmap ->
+            locationLabelBitmap = bitmap
+        }.onFailure { error ->
+            showPrintLabelDialog = false
+            Toast.makeText(
+                context,
+                error.message ?: context.getString(R.string.inventory_location_label_export_failed),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        locationLabelLoading = false
     }
 
     BackHandler(onBack = onBack)
@@ -622,6 +660,20 @@ private fun InventoryLocationDetailScreen(
                                 modifier = Modifier.padding(start = 12.dp)
                             )
                         }
+                    }
+                    IconButton(
+                        onClick = {
+                            showPrintLabelDialog = true
+                            locationLabelBitmap = null
+                            locationLabelLoading = true
+                            locationLabelSaving = false
+                            locationLabelPrinting = false
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Print,
+                            contentDescription = stringResource(R.string.inventory_print_location_label)
+                        )
                     }
                     IconButton(onClick = { showSettingsDialog = true }) {
                         Icon(
@@ -941,6 +993,144 @@ private fun InventoryLocationDetailScreen(
                         text = stringResource(R.string.common_delete),
                         color = MaterialTheme.colorScheme.error
                     )
+                }
+            }
+        )
+    }
+
+    if (showPrintLabelDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!locationLabelSaving && !locationLabelPrinting) {
+                    showPrintLabelDialog = false
+                    locationLabelBitmap = null
+                    locationLabelLoading = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            title = { Text(text = stringResource(R.string.inventory_location_label_preview_title)) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (locationLabelLoading) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator()
+                            Text(text = stringResource(R.string.inventory_location_label_preview_loading))
+                        }
+                    } else {
+                        locationLabelBitmap?.let { bitmap ->
+                            androidx.compose.foundation.Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = cell.displayName ?: cell.code,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                        Text(
+                            text = if (printerState.connectionState == PrinterConnectionState.CONNECTED) {
+                                printerState.connectionSummary
+                            } else {
+                                stringResource(R.string.printer_not_connected)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (locationLabelPrinting || printerState.isPrinting) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                Text(text = stringResource(R.string.printer_print_in_progress))
+                            }
+                        }
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPrintLabelDialog = false
+                        locationLabelBitmap = null
+                        locationLabelLoading = false
+                    },
+                    enabled = !locationLabelSaving && !locationLabelPrinting
+                ) {
+                    Text(text = stringResource(R.string.common_cancel))
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            val bitmap = locationLabelBitmap ?: return@TextButton
+                            locationLabelPrinting = true
+                            q5PrinterManager.printBitmap(bitmap) { errorMessage ->
+                                locationLabelPrinting = false
+                                Toast.makeText(
+                                    context,
+                                    errorMessage ?: context.getString(R.string.printer_print_success),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        enabled = !locationLabelLoading &&
+                            !locationLabelSaving &&
+                            !locationLabelPrinting &&
+                            locationLabelBitmap != null &&
+                            printerState.connectionState == PrinterConnectionState.CONNECTED &&
+                            !printerState.isPrinting
+                    ) {
+                        Text(text = stringResource(R.string.printer_print_label))
+                    }
+                    TextButton(
+                        onClick = {
+                            val bitmap = locationLabelBitmap ?: return@TextButton
+                            locationLabelSaving = true
+                            coroutineScope.launch {
+                                LocationLabelExporter.saveBitmapToGallery(
+                                    context = context,
+                                    locationCode = cell.code,
+                                    bitmap = bitmap
+                                ).onSuccess { fileName ->
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.inventory_location_label_saved, fileName),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    showPrintLabelDialog = false
+                                    locationLabelBitmap = null
+                                }.onFailure { error ->
+                                    Toast.makeText(
+                                        context,
+                                        error.message ?: context.getString(R.string.inventory_location_label_export_failed),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                locationLabelSaving = false
+                            }
+                        },
+                        enabled = !locationLabelLoading &&
+                            !locationLabelSaving &&
+                            !locationLabelPrinting &&
+                            locationLabelBitmap != null
+                    ) {
+                        Text(text = stringResource(R.string.common_save))
+                    }
                 }
             }
         )

@@ -80,6 +80,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import com.example.lcsc_android_erp.LcscApplication
 import com.example.lcsc_android_erp.R
+import com.example.lcsc_android_erp.core.printer.PrinterConnectionState
+import com.example.lcsc_android_erp.core.printer.Q5PrinterManager
 import com.example.lcsc_android_erp.core.ui.MaterialListCard
 import com.example.lcsc_android_erp.core.ui.performCopyFeedback
 import com.example.lcsc_android_erp.domain.model.ComponentDetail
@@ -99,6 +101,7 @@ fun InboundRoute(
     InboundScreen(
         modifier = modifier,
         uiState = uiState.value,
+        q5PrinterManager = appContainer.q5PrinterManager,
         onQrScanned = viewModel::onQrScanned,
         onContinueScanning = viewModel::clearScanResult,
         onManualSearch = viewModel::searchManual,
@@ -109,6 +112,7 @@ fun InboundRoute(
 @Composable
 fun InboundScreen(
     uiState: InboundUiState,
+    q5PrinterManager: Q5PrinterManager,
     onQrScanned: (String) -> Unit,
     onContinueScanning: () -> Unit,
     onManualSearch: (String) -> Unit,
@@ -117,6 +121,7 @@ fun InboundScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val printerState by q5PrinterManager.state.collectAsStateWithLifecycle()
     var hasCameraPermission by rememberSaveable {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -141,6 +146,7 @@ fun InboundScreen(
     var qrPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var qrPreviewLoading by remember { mutableStateOf(false) }
     var qrPreviewSaving by remember { mutableStateOf(false) }
+    var qrPreviewPrinting by remember { mutableStateOf(false) }
 
     LaunchedEffect(inboundMode) {
         if (inboundMode != InboundMode.Scan) {
@@ -391,7 +397,7 @@ fun InboundScreen(
     qrPreviewComponent?.let { component ->
         AlertDialog(
             onDismissRequest = {
-                if (!qrPreviewSaving) {
+                if (!qrPreviewSaving && !qrPreviewPrinting) {
                     qrPreviewComponent = null
                     qrPreviewBitmap = null
                     qrPreviewLoading = false
@@ -429,6 +435,24 @@ fun InboundScreen(
                                 contentScale = ContentScale.Fit
                             )
                         }
+                        Text(
+                            text = if (printerState.connectionState == PrinterConnectionState.CONNECTED) {
+                                printerState.connectionSummary
+                            } else {
+                                stringResource(R.string.printer_not_connected)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (qrPreviewPrinting || printerState.isPrinting) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                Text(text = stringResource(R.string.printer_print_in_progress))
+                            }
+                        }
                     }
                 }
             },
@@ -439,42 +463,68 @@ fun InboundScreen(
                         qrPreviewBitmap = null
                         qrPreviewLoading = false
                     },
-                    enabled = !qrPreviewSaving
+                    enabled = !qrPreviewSaving && !qrPreviewPrinting
                 ) {
                     Text(text = stringResource(R.string.common_cancel))
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        val bitmap = qrPreviewBitmap ?: return@TextButton
-                        qrPreviewSaving = true
-                        coroutineScope.launch {
-                            MaterialQrCodeExporter.saveBitmapToGallery(
-                                context = context,
-                                partNumber = component.partNumber,
-                                bitmap = bitmap
-                            ).onSuccess { fileName ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            val bitmap = qrPreviewBitmap ?: return@TextButton
+                            qrPreviewPrinting = true
+                            q5PrinterManager.printBitmap(bitmap) { errorMessage ->
+                                qrPreviewPrinting = false
                                 Toast.makeText(
                                     context,
-                                    context.getString(R.string.inbound_manual_print_qr_saved, fileName),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                qrPreviewComponent = null
-                                qrPreviewBitmap = null
-                            }.onFailure { error ->
-                                Toast.makeText(
-                                    context,
-                                    error.message ?: context.getString(R.string.inbound_manual_print_qr_failed),
+                                    errorMessage ?: context.getString(R.string.printer_print_success),
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
-                            qrPreviewSaving = false
-                        }
-                    },
-                    enabled = !qrPreviewLoading && !qrPreviewSaving && qrPreviewBitmap != null
-                ) {
-                    Text(text = stringResource(R.string.common_confirm))
+                        },
+                        enabled = !qrPreviewLoading &&
+                            !qrPreviewSaving &&
+                            !qrPreviewPrinting &&
+                            qrPreviewBitmap != null &&
+                            printerState.connectionState == PrinterConnectionState.CONNECTED &&
+                            !printerState.isPrinting
+                    ) {
+                        Text(text = stringResource(R.string.printer_print_label))
+                    }
+                    TextButton(
+                        onClick = {
+                            val bitmap = qrPreviewBitmap ?: return@TextButton
+                            qrPreviewSaving = true
+                            coroutineScope.launch {
+                                MaterialQrCodeExporter.saveBitmapToGallery(
+                                    context = context,
+                                    partNumber = component.partNumber,
+                                    bitmap = bitmap
+                                ).onSuccess { fileName ->
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.inbound_manual_print_qr_saved, fileName),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    qrPreviewComponent = null
+                                    qrPreviewBitmap = null
+                                }.onFailure { error ->
+                                    Toast.makeText(
+                                        context,
+                                        error.message ?: context.getString(R.string.inbound_manual_print_qr_failed),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                                qrPreviewSaving = false
+                            }
+                        },
+                        enabled = !qrPreviewLoading && !qrPreviewSaving && !qrPreviewPrinting && qrPreviewBitmap != null
+                    ) {
+                        Text(text = stringResource(R.string.common_save))
+                    }
                 }
             }
         )
@@ -709,7 +759,7 @@ private data class InboundCategoryLocationMapping(
 private val inboundCategoryLocationMappings = listOf(
     InboundCategoryLocationMapping(listOf("电阻"), "R"),
     InboundCategoryLocationMapping(listOf("电容"), "C"),
-    InboundCategoryLocationMapping(listOf("二极管", "LED"), "D"),
+    InboundCategoryLocationMapping(listOf("二极管", "LED", "TVS"), "D"),
     InboundCategoryLocationMapping(listOf("电感"), "L"),
     InboundCategoryLocationMapping(listOf("三极管", "晶体管", "MOS"), "Q"),
     InboundCategoryLocationMapping(listOf("晶振", "振荡器"), "Y"),

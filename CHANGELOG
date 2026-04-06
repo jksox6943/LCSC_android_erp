@@ -1,11 +1,19 @@
 <!--
  * @author: BC
  * @date: 26/04/01
- * @lastEditTime: 26/04/01
+ * @lastEditTime: 26/04/06
  * @description: 
  * @note: 
  * @version: 0.1.0
 -->
+
+
+# V1.1.0 26/04/06
+- FIX: 修复二维码内容错误
+- FIX: 搜索入库，加入后立即显示“库存已有”
+- MOD: 最低安卓版本改为 android 10 (minSdk = 29)
+- MOD: 修改“设置”“关于”信息
+
 
 # V1.0.0 26/04/01 
 initial release

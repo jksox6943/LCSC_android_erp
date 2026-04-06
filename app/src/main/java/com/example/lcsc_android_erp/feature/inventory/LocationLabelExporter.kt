@@ -1,4 +1,4 @@
-package com.example.lcsc_android_erp.feature.inbound
+package com.example.lcsc_android_erp.feature.inventory
 
 import android.content.ContentValues
 import android.content.Context
@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.os.Environment
 import android.provider.MediaStore
 import android.text.Layout
@@ -14,54 +15,48 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import com.example.lcsc_android_erp.R
-import com.example.lcsc_android_erp.domain.model.ComponentDetail
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.MultiFormatWriter
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.example.lcsc_android_erp.domain.model.StockLocationCell
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-object MaterialQrCodeExporter {
+object LocationLabelExporter {
     suspend fun createPreviewBitmap(
         context: Context,
-        component: ComponentDetail
+        cell: StockLocationCell,
+        inventoryCount: Int
     ): Result<Bitmap> = withContext(Dispatchers.IO) {
         runCatching {
-            val payload = "{on:,pc:${component.partNumber.trim()},pm:,qty:,mc:,cc:,pdi:,hp:}"
             createLabelBitmap(
                 context = context,
-                component = component,
-                qrBitmap = createQrBitmap(payload, size = 720)
+                cell = cell,
+                inventoryCount = inventoryCount
             )
         }
     }
 
     suspend fun saveBitmapToGallery(
         context: Context,
-        partNumber: String,
+        locationCode: String,
         bitmap: Bitmap
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val fileName = buildFileName(partNumber)
+            val fileName = buildFileName(locationCode)
             val resolver = context.contentResolver
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(
-                    MediaStore.Images.Media.RELATIVE_PATH,
-                    Environment.DIRECTORY_PICTURES + "/LCSC ERP"
-                )
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/LCSC ERP")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
-
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
                 ?: error("无法创建相册文件。")
 
             resolver.openOutputStream(uri)?.use { outputStream ->
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)) {
-                    "二维码写入失败。"
+                    "标签写入失败。"
                 }
             } ?: error("无法打开相册输出流。")
 
@@ -75,25 +70,15 @@ object MaterialQrCodeExporter {
         }
     }
 
-    suspend fun saveToGallery(
-        context: Context,
-        component: ComponentDetail
-    ): Result<String> = withContext(Dispatchers.IO) {
-        createPreviewBitmap(context, component).fold(
-            onSuccess = { bitmap -> saveBitmapToGallery(context, component.partNumber, bitmap) },
-            onFailure = { Result.failure(it) }
-        )
-    }
-
-    private fun buildFileName(partNumber: String): String {
+    private fun buildFileName(locationCode: String): String {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return "material_qr_${partNumber.trim()}_$timestamp.png"
+        return "location_label_${locationCode.trim()}_$timestamp.png"
     }
 
     private fun createLabelBitmap(
         context: Context,
-        component: ComponentDetail,
-        qrBitmap: Bitmap
+        cell: StockLocationCell,
+        inventoryCount: Int
     ): Bitmap {
         val width = 1200
         val height = 720
@@ -113,6 +98,12 @@ object MaterialQrCodeExporter {
         val mediaBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#EEF2F6")
             style = Paint.Style.FILL
+        }
+        val codePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#111827")
+            textSize = 520f
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
@@ -146,11 +137,14 @@ object MaterialQrCodeExporter {
         val textTop = mediaTop
         val textRight = cardRight - contentPadding
         val textWidth = (textRight - textLeft).toInt()
-        val subtitle = listOfNotNull(component.brand, component.packageName, component.category)
-            .filter { it.isNotBlank() }
-            .joinToString(" · ")
-        val secondarySummary = exporterSecondarySummary(component)
-        val detailLine = "${context.getString(R.string.inbound_component_number)}: ${component.partNumber}"
+        val title = cell.displayName?.takeIf { it.isNotBlank() }
+            ?: context.getString(R.string.inventory_location_label_type)
+        val subtitle = context.getString(R.string.inventory_location_label_type)
+        val countLine = context.getString(R.string.inventory_location_label_count, inventoryCount)
+        val quantityLine = context.getString(
+            R.string.inventory_location_label_quantity,
+            displayQuantityText(context, cell.totalQuantity)
+        )
 
         canvas.drawRoundRect(
             RectF(cardLeft, cardTop, cardRight, cardBottom),
@@ -170,75 +164,31 @@ object MaterialQrCodeExporter {
             22f,
             mediaBackgroundPaint
         )
-
-        canvas.drawBitmap(
-            qrBitmap,
-            null,
-            RectF(
-                mediaLeft + qrInset,
-                mediaTop + qrInset,
-                mediaRight - qrInset,
-                mediaBottom - qrInset
-            ),
-            null
+        val codeBaseline = mediaTop + mediaSize / 2f - (codePaint.descent() + codePaint.ascent()) / 2f
+        canvas.drawText(
+            cell.code,
+            mediaLeft + mediaSize / 2f,
+            codeBaseline,
+            codePaint
         )
 
         var currentY = textTop
-        currentY += drawTextBlock(
-            canvas = canvas,
-            text = component.name ?: component.mpn ?: component.partNumber,
-            paint = titlePaint,
-            x = textLeft,
-            y = currentY,
-            width = textWidth,
-            maxLines = 3
-        )
-        if (subtitle.isNotBlank()) {
-            currentY += 8f
-            currentY += drawTextBlock(
-                canvas = canvas,
-                text = subtitle,
-                paint = subtitlePaint,
-                x = textLeft,
-                y = currentY,
-                width = textWidth,
-                maxLines = 3
-            )
-        }
-        secondarySummary?.let {
-            currentY += 10f
-            currentY += drawTextBlock(
-                canvas = canvas,
-                text = it,
-                paint = bodyPaint,
-                x = textLeft,
-                y = currentY,
-                width = textWidth,
-                maxLines = 3
-            )
-        }
-        currentY += 12f
-        drawTextBlock(
-            canvas = canvas,
-            text = detailLine,
-            paint = bodyPaint,
-            x = textLeft,
-            y = currentY,
-            width = textWidth,
-            maxLines = 3
-        )
+        currentY += drawTextBlock(canvas, title, titlePaint, textLeft, currentY, textWidth, 3)
+        currentY += 8f
+        currentY += drawTextBlock(canvas, subtitle, subtitlePaint, textLeft, currentY, textWidth, 2)
+        currentY += 10f
+        currentY += drawTextBlock(canvas, countLine, bodyPaint, textLeft, currentY, textWidth, 2)
+        currentY += 10f
+        drawTextBlock(canvas, quantityLine, bodyPaint, textLeft, currentY, textWidth, 2)
         return bitmap
     }
 
-    private fun createQrBitmap(content: String, size: Int): Bitmap {
-        val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bitmap.setPixel(x, y, if (matrix[x, y]) Color.BLACK else Color.WHITE)
-            }
+    private fun displayQuantityText(context: Context, quantity: Int): String {
+        return if (quantity == 0) {
+            context.getString(R.string.inventory_unknown_quantity)
+        } else {
+            quantity.toString()
         }
-        return bitmap
     }
 
     private fun drawTextBlock(
@@ -261,24 +211,5 @@ object MaterialQrCodeExporter {
         layout.draw(canvas)
         canvas.restore()
         return layout.height.toFloat()
-    }
-
-    private fun exporterSecondarySummary(component: ComponentDetail): String? {
-        val preferredKeys = listOf("电阻类型", "阻值", "容值", "精度", "功率")
-        return buildList {
-            preferredKeys.forEach { key ->
-                component.specifications[key]
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let(::add)
-            }
-            component.specifications
-                .filterKeys { it !in preferredKeys }
-                .toSortedMap()
-                .values
-                .map(String::trim)
-                .filter { it.isNotEmpty() }
-                .forEach(::add)
-        }.distinct().joinToString(" · ").takeIf { it.isNotBlank() }
     }
 }

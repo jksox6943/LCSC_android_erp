@@ -236,7 +236,10 @@ fun SearchScreen(
                     }
                 } else {
                     items(uiState.pagedResults, key = { it.partNumber + (it.mpn ?: "") }) { item ->
-                        SearchResultCard(item = item)
+                        SearchResultCard(
+                            item = item,
+                            showTotalQuantity = false
+                        )
                     }
                 }
             }
@@ -748,7 +751,7 @@ private fun MessageCard(text: String) {
 @Composable
 private fun SearchResultCard(
     item: SearchResultUiModel,
-    showTotalQuantity: Boolean = true
+    showTotalQuantity: Boolean = false
 ) {
     val imageModel = item.imageLocalPath
         ?.takeIf { it.isNotBlank() }

@@ -86,7 +86,7 @@ fun SettingsScreen(
     ) {
         item {
             Text(
-                text = stringResource(R.string.settings_title),
+                text = uiState.content.title,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -95,30 +95,30 @@ fun SettingsScreen(
         item {
             Column {
                 SettingsActionRow(
-                    title = stringResource(R.string.settings_language),
+                    title = uiState.content.languageTitle,
                     subtitle = when (uiState.selectedLanguageTag) {
-                        UserPreferencesRepository.LANGUAGE_EN -> stringResource(R.string.settings_language_english)
-                        else -> stringResource(R.string.settings_language_chinese)
+                        UserPreferencesRepository.LANGUAGE_EN -> uiState.content.languageEnglish
+                        else -> uiState.content.languageChinese
                     },
                     onClick = { showLanguageDialog = true }
                 )
                 HorizontalDivider()
                 SettingsActionRow(
-                    title = stringResource(R.string.settings_about),
-                    subtitle = stringResource(R.string.settings_about_summary),
+                    title = uiState.content.aboutTitle,
+                    subtitle = uiState.content.aboutSummary,
                     onClick = { showAboutDialog = true }
                 )
                 HorizontalDivider()
                 SettingsActionRow(
-                    title = stringResource(R.string.settings_export_inventory),
-                    subtitle = stringResource(R.string.settings_export_inventory_summary),
+                    title = uiState.content.exportInventoryTitle,
+                    subtitle = uiState.content.exportInventorySummary,
                     onClick = { exportLauncher.launch("lcsc_inventory_backup.xlsx") },
                     enabled = !uiState.isProcessingInventoryBackup
                 )
                 HorizontalDivider()
                 SettingsActionRow(
-                    title = stringResource(R.string.settings_import_inventory),
-                    subtitle = stringResource(R.string.settings_import_inventory_summary),
+                    title = uiState.content.importInventoryTitle,
+                    subtitle = uiState.content.importInventorySummary,
                     onClick = {
                         importLauncher.launch(
                             arrayOf(
@@ -135,6 +135,7 @@ fun SettingsScreen(
 
     if (showLanguageDialog) {
         LanguageDialog(
+            content = uiState.content,
             selectedLanguageTag = uiState.selectedLanguageTag,
             onDismiss = { showLanguageDialog = false },
             onLanguageSelected = { languageTag ->
@@ -146,6 +147,7 @@ fun SettingsScreen(
 
     if (showAboutDialog) {
         AboutDialog(
+            content = uiState.content,
             onDismiss = { showAboutDialog = false }
         )
     }
@@ -153,7 +155,7 @@ fun SettingsScreen(
     uiState.inventoryBackupMessage?.let { message ->
         AlertDialog(
             onDismissRequest = onClearInventoryBackupMessage,
-            title = { Text(text = stringResource(R.string.settings_inventory_backup)) },
+            title = { Text(text = uiState.content.inventoryBackupTitle) },
             text = { Text(text = message) },
             confirmButton = {
                 TextButton(onClick = onClearInventoryBackupMessage) {
@@ -204,22 +206,23 @@ private fun SettingsActionRow(
 
 @Composable
 private fun LanguageDialog(
+    content: SettingsContent,
     selectedLanguageTag: String,
     onDismiss: () -> Unit,
     onLanguageSelected: (String) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.settings_language)) },
+        title = { Text(text = content.languageTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LanguageOptionRow(
-                    label = stringResource(R.string.settings_language_chinese),
+                    label = content.languageChinese,
                     selected = selectedLanguageTag == UserPreferencesRepository.LANGUAGE_ZH,
                     onClick = { onLanguageSelected(UserPreferencesRepository.LANGUAGE_ZH) }
                 )
                 LanguageOptionRow(
-                    label = stringResource(R.string.settings_language_english),
+                    label = content.languageEnglish,
                     selected = selectedLanguageTag == UserPreferencesRepository.LANGUAGE_EN,
                     onClick = { onLanguageSelected(UserPreferencesRepository.LANGUAGE_EN) }
                 )
@@ -260,6 +263,7 @@ private fun LanguageOptionRow(
 
 @Composable
 private fun AboutDialog(
+    content: SettingsContent,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -269,7 +273,7 @@ private fun AboutDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.settings_about)) },
+        title = { Text(text = content.aboutTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -282,11 +286,11 @@ private fun AboutDialog(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = stringResource(R.string.settings_about_body),
+                    text = content.aboutBody,
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = stringResource(R.string.settings_stack_body),
+                    text = content.stackBody,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

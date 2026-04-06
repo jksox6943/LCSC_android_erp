@@ -33,7 +33,7 @@ Core business data is persisted with `Room + SQLite`. Lightweight preferences an
 - Latest stable Android Studio
 - JDK 11
 - Android SDK 36
-- Android 13+ device or emulator
+- Android 11+ device or emulator
 
 ## Build
 

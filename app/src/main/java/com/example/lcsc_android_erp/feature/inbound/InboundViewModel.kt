@@ -195,6 +195,12 @@ class InboundViewModel(
                     rawPayload = rawPayload
                 )
             )
+            val existingStocks = inventoryRepository.findExistingStockLocations(component.partNumber)
+            inboundState.update {
+                it.copy(
+                    existingStockByPartNumber = it.existingStockByPartNumber + (component.partNumber to existingStocks)
+                )
+            }
         }
     }
 

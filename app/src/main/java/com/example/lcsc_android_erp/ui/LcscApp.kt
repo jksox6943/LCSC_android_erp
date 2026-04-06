@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -31,6 +32,7 @@ import com.example.lcsc_android_erp.R
 import com.example.lcsc_android_erp.feature.home.HomeRoute
 import com.example.lcsc_android_erp.feature.inbound.InboundRoute
 import com.example.lcsc_android_erp.feature.inventory.InventoryRoute
+import com.example.lcsc_android_erp.feature.printer.PrinterRoute
 import com.example.lcsc_android_erp.feature.search.SearchRoute
 import com.example.lcsc_android_erp.feature.settings.SettingsRoute
 
@@ -98,6 +100,9 @@ fun LcscApp() {
             composable(Destination.Search.route) {
                 SearchRoute()
             }
+            composable(Destination.Printer.route) {
+                PrinterRoute()
+            }
             composable(Destination.Inventory.route) {
                 InventoryRoute(resetToOverviewSignal = inventoryResetToOverviewSignal)
             }
@@ -116,6 +121,7 @@ private sealed class Destination(
     data object Home : Destination("home", R.string.nav_home, Icons.Outlined.Home)
     data object Inbound : Destination("inbound", R.string.nav_inbound, Icons.Outlined.QrCodeScanner)
     data object Search : Destination("search", R.string.nav_search, Icons.Outlined.Search)
+    data object Printer : Destination("printer", R.string.nav_printer, Icons.Outlined.Print)
     data object Inventory : Destination("inventory", R.string.nav_inventory, Icons.Outlined.Inventory2)
     data object Settings : Destination("settings", R.string.nav_settings, Icons.Outlined.Settings)
 }
