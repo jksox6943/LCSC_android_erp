@@ -69,7 +69,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.window.DialogProperties
@@ -1713,6 +1715,8 @@ private fun LocationInventoryItemCard(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val imageModel = item.imageLocalPath
         ?.takeIf { it.isNotBlank() }
         ?.let(::File)
@@ -1731,8 +1735,16 @@ private fun LocationInventoryItemCard(
         Column(
             modifier = Modifier
                 .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
+                    onClick = {
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
+                        onClick()
+                    },
+                    onLongClick = {
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
+                        onLongClick()
+                    }
                 )
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

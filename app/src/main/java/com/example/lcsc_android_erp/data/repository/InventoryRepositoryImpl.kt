@@ -1,6 +1,7 @@
 package com.example.lcsc_android_erp.data.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import com.example.lcsc_android_erp.R
@@ -39,6 +40,7 @@ class InventoryRepositoryImpl(
     private val componentImageStore: ComponentImageStore
 ) : InventoryRepository {
     private companion object {
+        private const val TAG = "InventoryRepository"
         private val LOCATION_CODE_REGEX = Regex("^[A-Z][1-9]$")
     }
 
@@ -147,22 +149,18 @@ class InventoryRepositoryImpl(
     }
 
     override suspend fun getNextManualInboundPartNumber(): String {
-        val usedIndexes = buildSet {
-            inventoryTransactionDao.getManualInboundSourceRefs()
-                .asSequence()
-                .mapNotNull(::parseManualInboundIndex)
-                .forEach(::add)
-            componentDao.getManualInboundPartNumbers()
-                .asSequence()
-                .mapNotNull(::parseManualInboundIndex)
-                .forEach(::add)
-        }
-
-        var nextIndex = 1
-        while (nextIndex in usedIndexes) {
-            nextIndex += 1
-        }
-        return "C${nextIndex.toString().padStart(2, '0')}"
+        val inStockC0PrefixedPartNumbers = inventoryItemDao.getInStockC0PrefixedPartNumbers()
+        val parsedIndexes = inStockC0PrefixedPartNumbers
+            .asSequence()
+            .mapNotNull(::parseManualInboundIndex)
+            .toList()
+        val nextIndex = parsedIndexes.maxOrNull()?.plus(1) ?: 1
+        val nextPartNumber = "C${nextIndex.toString().padStart(2, '0')}"
+        Log.d(
+            TAG,
+            "getNextManualInboundPartNumber inStockC0PartNumbers=$inStockC0PrefixedPartNumbers, parsedIndexes=$parsedIndexes, nextPartNumber=$nextPartNumber"
+        )
+        return nextPartNumber
     }
 
     override suspend fun bootstrapDefaults() {
@@ -483,19 +481,43 @@ class InventoryRepositoryImpl(
             .takeIf { it.isNotEmpty() }
             ?.let { JSONObject(it).toString() }
         if (existing != null) {
-            val updated = existing.copy(
-                partNumber = normalizedPartNumber,
-                mpn = existing.mpn ?: record.component.mpn,
-                name = existing.name ?: record.component.name,
-                brand = existing.brand ?: record.component.brand,
-                packageName = existing.packageName ?: record.component.packageName,
-                category = existing.category ?: record.component.category,
-                specJson = existing.specJson ?: specJson,
-                description = existing.description ?: record.component.description,
-                sourceUrl = existing.sourceUrl ?: record.component.productUrl,
-                imageLocalPath = existing.imageLocalPath ?: record.component.imageLocalPath,
-                updatedAt = System.currentTimeMillis()
-            )
+            val shouldResetStaleManualComponent = record.sourceType == "MANUAL_INPUT" &&
+                inventoryItemDao.countByComponent(existing.id) == 0
+            val updated = if (shouldResetStaleManualComponent) {
+                existing.copy(
+                    partNumber = normalizedPartNumber,
+                    mpn = record.component.mpn,
+                    name = record.component.name,
+                    brand = record.component.brand,
+                    packageName = record.component.packageName,
+                    category = record.component.category,
+                    specJson = specJson,
+                    description = record.component.description,
+                    sourceUrl = record.component.productUrl,
+                    imageLocalPath = record.component.imageLocalPath,
+                    updatedAt = System.currentTimeMillis()
+                )
+            } else {
+                existing.copy(
+                    partNumber = normalizedPartNumber,
+                    mpn = existing.mpn ?: record.component.mpn,
+                    name = existing.name ?: record.component.name,
+                    brand = existing.brand ?: record.component.brand,
+                    packageName = existing.packageName ?: record.component.packageName,
+                    category = existing.category ?: record.component.category,
+                    specJson = existing.specJson ?: specJson,
+                    description = existing.description ?: record.component.description,
+                    sourceUrl = existing.sourceUrl ?: record.component.productUrl,
+                    imageLocalPath = existing.imageLocalPath ?: record.component.imageLocalPath,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            if (shouldResetStaleManualComponent) {
+                Log.d(
+                    TAG,
+                    "upsertComponent reset stale manual component partNumber=$normalizedPartNumber, existingId=${existing.id}, previousImage=${existing.imageLocalPath}, newImage=${record.component.imageLocalPath}"
+                )
+            }
             if (updated != existing) {
                 componentDao.update(updated)
             }

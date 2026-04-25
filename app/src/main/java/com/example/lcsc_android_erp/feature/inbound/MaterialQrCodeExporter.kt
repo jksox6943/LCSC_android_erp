@@ -14,6 +14,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import com.example.lcsc_android_erp.R
+import com.example.lcsc_android_erp.core.printer.PrintTypeface
 import com.example.lcsc_android_erp.domain.model.ComponentDetail
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
@@ -117,15 +118,17 @@ object MaterialQrCodeExporter {
         val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
             textSize = 74f
-            isFakeBoldText = true
+            typeface = PrintTypeface.bold
         }
         val subtitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#5B6470")
             textSize = 48f
+            typeface = PrintTypeface.regular
         }
         val bodyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
             textSize = 48f
+            typeface = PrintTypeface.regular
         }
 
         val outerPadding = 12f

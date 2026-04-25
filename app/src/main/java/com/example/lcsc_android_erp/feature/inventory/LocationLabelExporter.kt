@@ -7,7 +7,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.os.Environment
 import android.provider.MediaStore
 import android.text.Layout
@@ -15,6 +14,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import com.example.lcsc_android_erp.R
+import com.example.lcsc_android_erp.core.printer.PrintTypeface
 import com.example.lcsc_android_erp.domain.model.StockLocationCell
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -103,20 +103,22 @@ object LocationLabelExporter {
             color = Color.parseColor("#111827")
             textSize = 460f
             textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            typeface = PrintTypeface.bold
         }
         val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
             textSize = 74f
-            isFakeBoldText = true
+            typeface = PrintTypeface.bold
         }
         val subtitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#5B6470")
             textSize = 48f
+            typeface = PrintTypeface.regular
         }
         val bodyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#111827")
             textSize = 48f
+            typeface = PrintTypeface.regular
         }
 
         val outerPadding = 12f

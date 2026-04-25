@@ -33,7 +33,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -186,12 +188,19 @@ fun ComponentFirstPropertyCell(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val hapticFeedback = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Column(
         modifier = modifier
             .combinedClickable(
-                onClick = {},
+                onClick = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                },
                 onLongClick = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
                     clipboardManager.setText(AnnotatedString(value))
                     performCopyFeedback(context, hapticFeedback)
                     Toast.makeText(
@@ -230,7 +239,7 @@ fun ComponentInfoSection(
                 ComponentInfoRow(
                     label = label,
                     value = value,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                 )
                 if (index != rows.lastIndex) {
                     HorizontalDivider()
@@ -249,13 +258,21 @@ fun ComponentInfoRow(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val hapticFeedback = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
+        Row(
+            modifier = modifier
+                .heightIn(min = 32.dp)
+                .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
+                onClick = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                },
                 onLongClick = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
                     clipboardManager.setText(AnnotatedString(value))
                     performCopyFeedback(context, hapticFeedback)
                     Toast.makeText(
@@ -265,9 +282,9 @@ fun ComponentInfoRow(
                     ).show()
                 }
             ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top
-    ) {
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,

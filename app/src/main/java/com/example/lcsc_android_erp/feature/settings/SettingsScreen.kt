@@ -1,5 +1,6 @@
 package com.example.lcsc_android_erp.feature.settings
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -29,12 +30,20 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.lcsc_android_erp.LcscApplication
 import com.example.lcsc_android_erp.R
 import com.example.lcsc_android_erp.core.datastore.UserPreferencesRepository
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private const val GITHUB_URL = "https://github.com/BrokenClient/LCSC_android_erp"
+private const val GITEE_URL = "https://gitee.com/BrokenClient/LCSC_android_erp"
 
 @Composable
 fun SettingsRoute(
@@ -112,7 +121,7 @@ fun SettingsScreen(
                 SettingsActionRow(
                     title = uiState.content.exportInventoryTitle,
                     subtitle = uiState.content.exportInventorySummary,
-                    onClick = { exportLauncher.launch("lcsc_inventory_backup.xlsx") },
+                    onClick = { exportLauncher.launch(buildInventoryExportFileName()) },
                     enabled = !uiState.isProcessingInventoryBackup
                 )
                 HorizontalDivider()
@@ -164,6 +173,11 @@ fun SettingsScreen(
             }
         )
     }
+}
+
+private fun buildInventoryExportFileName(now: Date = Date()): String {
+    val dateSuffix = SimpleDateFormat("MMdd", Locale.ROOT).format(now)
+    return "lcsc_inventory_backup_$dateSuffix.xlsx"
 }
 
 @Composable
@@ -273,6 +287,8 @@ private fun AboutDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
         title = { Text(text = content.aboutTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -289,11 +305,23 @@ private fun AboutDialog(
                     text = content.aboutBody,
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Text(
-                    text = content.stackBody,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                StaticLinkText(
+                    label = "github",
+                    url = GITHUB_URL,
+                    onClick = { openExternalUrl(context, GITHUB_URL) }
                 )
+                StaticLinkText(
+                    label = "gitee",
+                    url = GITEE_URL,
+                    onClick = { openExternalUrl(context, GITEE_URL) }
+                )
+                if (content.stackBody.isNotBlank()) {
+                    Text(
+                        text = content.stackBody,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         confirmButton = {
@@ -302,4 +330,27 @@ private fun AboutDialog(
             }
         }
     )
+}
+
+@Composable
+private fun StaticLinkText(
+    label: String,
+    url: String,
+    onClick: () -> Unit
+) {
+    Text(
+        text = "$label: $url",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        textDecoration = TextDecoration.Underline,
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+private fun openExternalUrl(context: android.content.Context, rawUrl: String) {
+    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(rawUrl)).apply {
+        addCategory(Intent.CATEGORY_BROWSABLE)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
 }

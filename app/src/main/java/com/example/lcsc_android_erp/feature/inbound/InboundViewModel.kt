@@ -1,6 +1,7 @@
 package com.example.lcsc_android_erp.feature.inbound
 
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -63,7 +64,7 @@ class InboundViewModel(
     init {
         viewModelScope.launch {
             inventoryRepository.bootstrapDefaults()
-            refreshNextManualInboundPartNumber()
+            refreshNextManualInboundPartNumberInternal()
         }
     }
 
@@ -144,6 +145,13 @@ class InboundViewModel(
                     existingStockByPartNumber = it.existingStockByPartNumber + (normalizedPartNumber to existingStocks)
                 )
             }
+        }
+    }
+
+    fun refreshNextManualInboundPartNumber() {
+        Log.d(TAG, "refreshNextManualInboundPartNumber requested")
+        viewModelScope.launch {
+            refreshNextManualInboundPartNumberInternal()
         }
     }
 
@@ -262,14 +270,15 @@ class InboundViewModel(
                 )
             }
             if (sourceType == "MANUAL_INPUT") {
-                refreshNextManualInboundPartNumber()
+                refreshNextManualInboundPartNumberInternal()
             }
             onCompleted(null)
         }
     }
 
-    private suspend fun refreshNextManualInboundPartNumber() {
+    private suspend fun refreshNextManualInboundPartNumberInternal() {
         val nextPartNumber = inventoryRepository.getNextManualInboundPartNumber()
+        Log.d(TAG, "refreshNextManualInboundPartNumberInternal resolved nextPartNumber=$nextPartNumber")
         inboundState.update {
             it.copy(
                 nextManualInboundPartNumber = nextPartNumber
@@ -278,6 +287,8 @@ class InboundViewModel(
     }
 
     companion object {
+        private const val TAG = "InboundViewModel"
+
         fun factory(appContainer: AppContainer): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 InboundViewModel(

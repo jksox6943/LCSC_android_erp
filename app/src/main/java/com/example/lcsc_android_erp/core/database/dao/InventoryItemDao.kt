@@ -37,6 +37,9 @@ interface InventoryItemDao {
     )
     suspend fun findByComponentAndLocation(componentId: Long, locationId: Long): InventoryItemEntity?
 
+    @Query("SELECT COUNT(*) FROM inventory_item WHERE component_id = :componentId")
+    suspend fun countByComponent(componentId: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(item: InventoryItemEntity): Long
 
@@ -76,6 +79,17 @@ interface InventoryItemDao {
         """
     )
     suspend fun findExistingStockLocations(partNumber: String): List<ExistingStockLocationProjection>
+
+    @Query(
+        """
+        SELECT DISTINCT cm.part_number
+        FROM inventory_item ii
+        INNER JOIN component_master cm ON cm.id = ii.component_id
+        WHERE cm.part_number LIKE 'C0%'
+        ORDER BY cm.part_number ASC
+        """
+    )
+    suspend fun getInStockC0PrefixedPartNumbers(): List<String>
 
     @Query(
         """

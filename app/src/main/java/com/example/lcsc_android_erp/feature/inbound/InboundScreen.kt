@@ -5,7 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -123,6 +125,7 @@ fun InboundRoute(
         onQrScanned = viewModel::onQrScanned,
         onContinueScanning = viewModel::clearScanResult,
         onManualSearch = viewModel::searchManual,
+        onRefreshNextManualInboundPartNumber = viewModel::refreshNextManualInboundPartNumber,
         onRefreshExistingStock = viewModel::refreshExistingStock,
         onConfirmInbound = { component, quantity, locationCode, sourceType, rawPayload, onCompleted ->
             viewModel.confirmInbound(
@@ -145,6 +148,7 @@ fun InboundScreen(
     onQrScanned: (String) -> Unit,
     onContinueScanning: () -> Unit,
     onManualSearch: (String) -> Unit,
+    onRefreshNextManualInboundPartNumber: () -> Unit,
     onRefreshExistingStock: (String) -> Unit,
     onConfirmInbound: (ComponentDetail, Int, String, String, String?, (String?) -> Unit) -> Unit,
     onViewInventoryItem: (String, String) -> Unit,
@@ -299,8 +303,8 @@ fun InboundScreen(
         manualCategory = component.category.orEmpty()
         manualQuantityText = ""
         manualDescription = component.description.orEmpty()
-        manualSourceUrl = component.productUrl.orEmpty()
-        manualSourceUrlOriginal = component.productUrl.orEmpty()
+        manualSourceUrl = ""
+        manualSourceUrlOriginal = ""
         manualImageLocalPath = component.imageLocalPath.orEmpty()
         manualImageUrl = component.imageUrl.orEmpty()
         manualSpecLines = component.specifications.entries.joinToString("\n") { (key, value) ->
@@ -390,6 +394,11 @@ fun InboundScreen(
             torchEnabled = false
         }
         if (mode == InboundMode.Manual) {
+            Log.d(
+                INBOUND_SCREEN_TAG,
+                "handleModeSelected entered manual mode, requesting next manual inbound part number refresh"
+            )
+            onRefreshNextManualInboundPartNumber()
             manualName = ""
             manualBrand = ""
             manualPackageName = ""
@@ -932,6 +941,8 @@ private enum class InboundMode(val titleRes: Int) {
     Scan(R.string.inbound_mode_scan)
 }
 
+private const val INBOUND_SCREEN_TAG = "InboundScreen"
+
 @Composable
 private fun RecentManualSearchesCard(
     keywords: List<String>,
@@ -1448,7 +1459,11 @@ private fun saveManualInboundBitmap(
     bitmap: Bitmap
 ): String {
     val imageDir = File(context.filesDir, "manual_inbound_images").apply { mkdirs() }
-    val targetFile = File(imageDir, "${partNumber.trim().uppercase().ifBlank { "MANUAL" }}.jpg")
+    val targetFile = buildManualInboundImageFile(
+        imageDir = imageDir,
+        partNumber = partNumber,
+        extension = "jpg"
+    )
     saveBitmapToFile(
         bitmap = resizeBitmapWithinLimit(bitmap),
         targetFile = targetFile,
@@ -1468,7 +1483,11 @@ private fun saveManualInboundImageUri(
         "image/webp" -> "webp" to Bitmap.CompressFormat.WEBP_LOSSY
         else -> "jpg" to Bitmap.CompressFormat.JPEG
     }
-    val targetFile = File(imageDir, "${partNumber.trim().uppercase().ifBlank { "MANUAL" }}.$extension")
+    val targetFile = buildManualInboundImageFile(
+        imageDir = imageDir,
+        partNumber = partNumber,
+        extension = extension
+    )
     val bitmap = decodeBitmapWithinLimit(context, uri) ?: error("Failed to decode selected image")
     saveBitmapToFile(
         bitmap = bitmap,
@@ -1478,10 +1497,40 @@ private fun saveManualInboundImageUri(
     return targetFile.absolutePath
 }
 
+private fun buildManualInboundImageFile(
+    imageDir: File,
+    partNumber: String,
+    extension: String
+): File {
+    val safePartNumber = partNumber
+        .trim()
+        .uppercase()
+        .ifBlank { "MANUAL" }
+        .replace(Regex("[^A-Z0-9._-]"), "_")
+    val normalizedExtension = extension.lowercase().ifBlank { "jpg" }
+    return File(imageDir, "${safePartNumber}_${System.currentTimeMillis()}.$normalizedExtension")
+}
+
 private fun decodeBitmapWithinLimit(
     context: android.content.Context,
     uri: Uri,
     maxDimension: Int = 300
+): Bitmap? {
+    return decodeBitmapWithBitmapFactory(
+        context = context,
+        uri = uri,
+        maxDimension = maxDimension
+    ) ?: decodeBitmapWithImageDecoder(
+        context = context,
+        uri = uri,
+        maxDimension = maxDimension
+    )
+}
+
+private fun decodeBitmapWithBitmapFactory(
+    context: android.content.Context,
+    uri: Uri,
+    maxDimension: Int
 ): Bitmap? {
     val resolver = context.contentResolver
     val bounds = BitmapFactory.Options().apply {
@@ -1503,6 +1552,26 @@ private fun decodeBitmapWithinLimit(
     } ?: return null
 
     return resizeBitmapWithinLimit(decodedBitmap, maxDimension)
+}
+
+private fun decodeBitmapWithImageDecoder(
+    context: android.content.Context,
+    uri: Uri,
+    maxDimension: Int
+): Bitmap? {
+    return runCatching {
+        val source = ImageDecoder.createSource(context.contentResolver, uri)
+        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            val sampleSize = calculateInSampleSize(
+                width = info.size.width,
+                height = info.size.height,
+                maxDimension = maxDimension
+            )
+            decoder.setTargetSampleSize(sampleSize)
+        }
+        resizeBitmapWithinLimit(bitmap, maxDimension)
+    }.getOrNull()
 }
 
 private fun calculateInSampleSize(
