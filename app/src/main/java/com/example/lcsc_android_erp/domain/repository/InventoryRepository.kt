@@ -3,6 +3,7 @@ package com.example.lcsc_android_erp.domain.repository
 import com.example.lcsc_android_erp.domain.model.DashboardSummary
 import com.example.lcsc_android_erp.domain.model.ExistingStockLocation
 import com.example.lcsc_android_erp.domain.model.InboundRecord
+import com.example.lcsc_android_erp.domain.model.LocationCategoryProfile
 import com.example.lcsc_android_erp.domain.model.LocationInventoryItem
 import com.example.lcsc_android_erp.domain.model.SearchInventoryRecord
 import com.example.lcsc_android_erp.domain.model.StockLocationCell
@@ -14,8 +15,12 @@ interface InventoryRepository {
     fun observeStorageLocations(): Flow<List<StorageLocation>>
     fun observeStockLocationCells(): Flow<List<StockLocationCell>>
     fun observeLocationInventory(locationId: Long): Flow<List<LocationInventoryItem>>
+    fun observeLocationCategoryProfiles(): Flow<List<LocationCategoryProfile>>
     fun observeSearchInventoryRecords(): Flow<List<SearchInventoryRecord>>
     suspend fun findExistingStockLocations(partNumber: String): List<ExistingStockLocation>
+    suspend fun refreshMissingLocationCategoryProfiles()
+    suspend fun refreshAllLocationCategoryProfiles()
+    suspend fun refreshLocationCategoryProfile(locationId: Long)
     suspend fun getNextManualInboundPartNumber(): String
     suspend fun bootstrapDefaults()
     suspend fun addInbound(record: InboundRecord)

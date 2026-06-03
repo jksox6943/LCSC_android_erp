@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Update
 import com.example.lcsc_android_erp.core.database.entity.InventoryItemEntity
 import com.example.lcsc_android_erp.core.database.model.ExistingStockLocationProjection
+import com.example.lcsc_android_erp.core.database.model.LocationCategoryProfileProjection
 import com.example.lcsc_android_erp.core.database.model.LocationInventoryProjection
 import com.example.lcsc_android_erp.core.database.model.SearchInventoryProjection
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +40,9 @@ interface InventoryItemDao {
 
     @Query("SELECT COUNT(*) FROM inventory_item WHERE component_id = :componentId")
     suspend fun countByComponent(componentId: Long): Int
+
+    @Query("SELECT DISTINCT location_id FROM inventory_item WHERE component_id = :componentId")
+    suspend fun getLocationIdsByComponent(componentId: Long): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(item: InventoryItemEntity): Long
@@ -143,6 +147,46 @@ interface InventoryItemDao {
         """
     )
     fun observeSearchInventoryRecords(): Flow<List<SearchInventoryProjection>>
+
+    @Query(
+        """
+        SELECT
+            ii.location_id AS locationId,
+            cm.category AS category,
+            cm.package_name AS packageName,
+            ii.quantity AS quantity
+        FROM inventory_item ii
+        INNER JOIN component_master cm ON cm.id = ii.component_id
+        """
+    )
+    fun observeLocationCategoryProfiles(): Flow<List<LocationCategoryProfileProjection>>
+
+    @Query(
+        """
+        SELECT
+            ii.location_id AS locationId,
+            cm.category AS category,
+            cm.package_name AS packageName,
+            ii.quantity AS quantity
+        FROM inventory_item ii
+        INNER JOIN component_master cm ON cm.id = ii.component_id
+        WHERE ii.location_id = :locationId
+        """
+    )
+    suspend fun getLocationCategoryProfiles(locationId: Long): List<LocationCategoryProfileProjection>
+
+    @Query(
+        """
+        SELECT
+            ii.location_id AS locationId,
+            cm.category AS category,
+            cm.package_name AS packageName,
+            ii.quantity AS quantity
+        FROM inventory_item ii
+        INNER JOIN component_master cm ON cm.id = ii.component_id
+        """
+    )
+    suspend fun getAllLocationCategoryProfiles(): List<LocationCategoryProfileProjection>
 
     @Query("DELETE FROM inventory_item")
     suspend fun deleteAll()

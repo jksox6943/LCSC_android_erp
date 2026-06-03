@@ -1,5 +1,6 @@
 package com.example.lcsc_android_erp.data.repository
 
+import android.util.Log
 import com.example.lcsc_android_erp.core.database.dao.ComponentDao
 import com.example.lcsc_android_erp.domain.repository.LcscCatalogRepository
 import java.util.concurrent.ConcurrentHashMap
@@ -29,8 +30,13 @@ data class ComponentEnrichmentState(
 class ComponentEnrichmentManager(
     private val componentDao: ComponentDao,
     private val lcscCatalogRepository: LcscCatalogRepository,
-    private val componentImageStore: ComponentImageStore
+    private val componentImageStore: ComponentImageStore,
+    private val onComponentEnriched: suspend (Long) -> Unit = {}
 ) {
+    private companion object {
+        private const val TAG = "ComponentEnrichment"
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
     private val runningPartNumbers = ConcurrentHashMap.newKeySet<String>()
     private val enrichMutex = Mutex()
@@ -61,7 +67,15 @@ class ComponentEnrichmentManager(
         scope.launch {
             try {
                 enrichMutex.withLock {
-                    enrich(normalizedPartNumber)
+                    runCatching {
+                        enrich(normalizedPartNumber)
+                    }.onFailure { throwable ->
+                        Log.w(
+                            TAG,
+                            "enrich failed partNumber=$normalizedPartNumber",
+                            throwable
+                        )
+                    }
                     delay(1_000)
                 }
             } finally {
@@ -98,7 +112,11 @@ class ComponentEnrichmentManager(
             .distinct()
             .forEach { partNumber ->
                 enrichMutex.withLock {
-                    enrich(partNumber)
+                    runCatching {
+                        enrich(partNumber)
+                    }.onFailure { throwable ->
+                        Log.w(TAG, "enrichNow failed partNumber=$partNumber", throwable)
+                    }
                     delay(1_000)
                 }
             }
@@ -126,5 +144,6 @@ class ComponentEnrichmentManager(
             updatedAt = System.currentTimeMillis()
         )
         componentDao.update(updated)
+        onComponentEnriched(existing.id)
     }
 }

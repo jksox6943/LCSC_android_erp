@@ -168,7 +168,7 @@
     <string name="inventory_card_body">The inventory page is still a shell and will later connect Room queries, filters, inventory details, and transaction history.</string>
     <string name="inventory_add_location">Add Location</string>
     <string name="inventory_add_location_label">Location Code</string>
-    <string name="inventory_add_location_hint">For example C0 or A10. Use one letter followed by digits; 0 is allowed.</string>
+    <string name="inventory_add_location_hint">For example C0 or A10. Use one letter followed by digits;</string>
     <string name="inventory_cell_count">%1$d item types</string>
     <string name="inventory_cell_summary">%1$s: %2$d item types</string>
     <string name="inventory_item_quantity">Quantity: %1$s</string>
@@ -177,7 +177,7 @@
     <string name="inventory_open_source">Open source link</string>
     <string name="inventory_open_source_failed">Unable to open source link</string>
     <string name="inventory_location_code">Location Code</string>
-    <string name="inventory_location_code_hint">For example C0 or A10. Use one letter followed by digits; 0 is allowed.</string>
+    <string name="inventory_location_code_hint">For example C0 or A10. Use one letter followed by digits;</string>
     <string name="inventory_location_name">Location Name</string>
     <string name="inventory_location_color">Location Color</string>
     <string name="inventory_location_pick_color">Pick Color</string>

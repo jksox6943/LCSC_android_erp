@@ -23,6 +23,9 @@ local.properties
 *.pem
 *.der
 
+__pycache__/
+*.py[cod]
+
 docs/update/
 h5/
 tools/output/

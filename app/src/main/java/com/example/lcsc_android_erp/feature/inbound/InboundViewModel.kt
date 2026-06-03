@@ -36,13 +36,15 @@ class InboundViewModel(
 
     val uiState: StateFlow<InboundUiState> = combine(
         inventoryRepository.observeStorageLocations(),
+        inventoryRepository.observeLocationCategoryProfiles(),
         userPreferencesRepository.preferences,
         inboundState
-    ) { locations, preferences, state ->
+    ) { locations, locationCategoryProfiles, preferences, state ->
         InboundUiState(
             defaultLocationCode = preferences.defaultLocationCode,
             nextManualInboundPartNumber = state.nextManualInboundPartNumber,
             locations = locations,
+            locationCategoryProfiles = locationCategoryProfiles,
             recentManualSearches = preferences.recentManualSearches,
             manualSearchResults = state.manualSearchResults,
             isSearchingManual = state.isSearchingManual,
@@ -64,6 +66,7 @@ class InboundViewModel(
     init {
         viewModelScope.launch {
             inventoryRepository.bootstrapDefaults()
+            inventoryRepository.refreshMissingLocationCategoryProfiles()
             refreshNextManualInboundPartNumberInternal()
         }
     }
@@ -102,28 +105,39 @@ class InboundViewModel(
         }
 
         viewModelScope.launch {
-            userPreferencesRepository.addRecentManualSearch(normalized)
-            val results = lcscCatalogRepository.searchByKeyword(normalized)
-            val existingStocks = results
-                .map { it.partNumber }
-                .distinct()
-                .associateWith { partNumber ->
-                    inventoryRepository.findExistingStockLocations(partNumber)
+            runCatching {
+                userPreferencesRepository.addRecentManualSearch(normalized)
+                val results = lcscCatalogRepository.searchByKeyword(normalized)
+                val existingStocks = results
+                    .map { it.partNumber }
+                    .distinct()
+                    .associateWith { partNumber ->
+                        inventoryRepository.findExistingStockLocations(partNumber)
+                    }
+                val sortedResults = results.sortedByDescending { component ->
+                    existingStocks[component.partNumber].isNullOrEmpty().not()
                 }
-            val sortedResults = results.sortedByDescending { component ->
-                existingStocks[component.partNumber].isNullOrEmpty().not()
-            }
-            inboundState.update {
-                it.copy(
-                    manualSearchResults = sortedResults,
-                    isSearchingManual = false,
-                    manualSearchError = if (sortedResults.isEmpty()) {
-                        appContext.getString(R.string.inbound_manual_empty)
-                    } else {
-                        null
-                    },
-                    existingStockByPartNumber = existingStocks
-                )
+                inboundState.update {
+                    it.copy(
+                        manualSearchResults = sortedResults,
+                        isSearchingManual = false,
+                        manualSearchError = if (sortedResults.isEmpty()) {
+                            appContext.getString(R.string.inbound_manual_empty)
+                        } else {
+                            null
+                        },
+                        existingStockByPartNumber = existingStocks
+                    )
+                }
+            }.onFailure { throwable ->
+                Log.w(TAG, "searchManual failed keyword=$normalized", throwable)
+                inboundState.update {
+                    it.copy(
+                        manualSearchResults = emptyList(),
+                        isSearchingManual = false,
+                        manualSearchError = appContext.getString(R.string.inbound_manual_empty)
+                    )
+                }
             }
         }
     }
@@ -204,24 +218,39 @@ class InboundViewModel(
         }
 
         viewModelScope.launch {
-            val component = lcscCatalogRepository.lookupByPartNumber(payload.partNumber)
-            val existingStocks = component?.let {
-                inventoryRepository.findExistingStockLocations(it.partNumber)
-            }.orEmpty()
-            inboundState.update {
-                it.copy(
-                    componentDetail = component,
-                    isLoadingComponent = false,
-                    componentLookupError = if (component == null) {
-                        appContext.getString(
+            runCatching {
+                val component = lcscCatalogRepository.lookupByPartNumber(payload.partNumber)
+                val existingStocks = component?.let {
+                    inventoryRepository.findExistingStockLocations(it.partNumber)
+                }.orEmpty()
+                inboundState.update {
+                    it.copy(
+                        componentDetail = component,
+                        isLoadingComponent = false,
+                        componentLookupError = if (component == null) {
+                            appContext.getString(
+                                R.string.inbound_scan_component_not_found,
+                                payload.partNumber
+                            )
+                        } else {
+                            null
+                        },
+                        existingStockByPartNumber = if (component == null) emptyMap() else mapOf(component.partNumber to existingStocks)
+                    )
+                }
+            }.onFailure { throwable ->
+                Log.w(TAG, "onQrScanned lookup failed partNumber=${payload.partNumber}", throwable)
+                inboundState.update {
+                    it.copy(
+                        componentDetail = null,
+                        isLoadingComponent = false,
+                        componentLookupError = appContext.getString(
                             R.string.inbound_scan_component_not_found,
                             payload.partNumber
-                        )
-                    } else {
-                        null
-                    },
-                    existingStockByPartNumber = if (component == null) emptyMap() else mapOf(component.partNumber to existingStocks)
-                )
+                        ),
+                        existingStockByPartNumber = emptyMap()
+                    )
+                }
             }
         }
     }
@@ -254,35 +283,44 @@ class InboundViewModel(
             return
         }
         viewModelScope.launch {
-            inventoryRepository.addInbound(
-                InboundRecord(
-                    component = component,
-                    quantity = quantity,
-                    locationCode = normalizedLocationCode,
-                    sourceType = sourceType,
-                    rawPayload = rawPayload
+            runCatching {
+                inventoryRepository.addInbound(
+                    InboundRecord(
+                        component = component,
+                        quantity = quantity,
+                        locationCode = normalizedLocationCode,
+                        sourceType = sourceType,
+                        rawPayload = rawPayload
+                    )
                 )
-            )
-            val existingStocks = inventoryRepository.findExistingStockLocations(component.partNumber)
-            inboundState.update {
-                it.copy(
-                    existingStockByPartNumber = it.existingStockByPartNumber + (component.partNumber to existingStocks)
-                )
+                val existingStocks = inventoryRepository.findExistingStockLocations(component.partNumber)
+                inboundState.update {
+                    it.copy(
+                        existingStockByPartNumber = it.existingStockByPartNumber + (component.partNumber to existingStocks)
+                    )
+                }
+                if (sourceType == "MANUAL_INPUT") {
+                    refreshNextManualInboundPartNumberInternal()
+                }
+                onCompleted(null)
+            }.onFailure { throwable ->
+                Log.e(TAG, "confirmInbound failed partNumber=${component.partNumber}", throwable)
+                onCompleted(throwable.message ?: appContext.getString(R.string.inbound_invalid_input))
             }
-            if (sourceType == "MANUAL_INPUT") {
-                refreshNextManualInboundPartNumberInternal()
-            }
-            onCompleted(null)
         }
     }
 
     private suspend fun refreshNextManualInboundPartNumberInternal() {
-        val nextPartNumber = inventoryRepository.getNextManualInboundPartNumber()
-        Log.d(TAG, "refreshNextManualInboundPartNumberInternal resolved nextPartNumber=$nextPartNumber")
-        inboundState.update {
-            it.copy(
-                nextManualInboundPartNumber = nextPartNumber
-            )
+        runCatching {
+            val nextPartNumber = inventoryRepository.getNextManualInboundPartNumber()
+            Log.d(TAG, "refreshNextManualInboundPartNumberInternal resolved nextPartNumber=$nextPartNumber")
+            inboundState.update {
+                it.copy(
+                    nextManualInboundPartNumber = nextPartNumber
+                )
+            }
+        }.onFailure { throwable ->
+            Log.e(TAG, "refreshNextManualInboundPartNumberInternal failed", throwable)
         }
     }
 

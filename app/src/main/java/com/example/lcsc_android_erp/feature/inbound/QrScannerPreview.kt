@@ -1,6 +1,7 @@
 package com.example.lcsc_android_erp.feature.inbound
 
 import android.annotation.SuppressLint
+import android.util.Log
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -49,17 +50,22 @@ fun QrScannerPreview(
             val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
             cameraProviderFuture.addListener(
                 {
-                    val cameraProvider = cameraProviderFuture.get()
-                    bindCameraUseCases(
-                        previewView = view,
-                        cameraProvider = cameraProvider,
-                        lifecycleOwner = lifecycleOwner,
-                        cameraExecutor = cameraExecutor,
-                        enabled = enabled,
-                        torchEnabled = torchEnabled,
-                        onTorchAvailabilityChanged = onTorchAvailabilityChanged,
-                        onQrCodeDetected = onQrCodeDetected
-                    )
+                    runCatching {
+                        val cameraProvider = cameraProviderFuture.get()
+                        bindCameraUseCases(
+                            previewView = view,
+                            cameraProvider = cameraProvider,
+                            lifecycleOwner = lifecycleOwner,
+                            cameraExecutor = cameraExecutor,
+                            enabled = enabled,
+                            torchEnabled = torchEnabled,
+                            onTorchAvailabilityChanged = onTorchAvailabilityChanged,
+                            onQrCodeDetected = onQrCodeDetected
+                        )
+                    }.onFailure { throwable ->
+                        Log.e("QrScannerPreview", "Failed to initialize scanner camera", throwable)
+                        onTorchAvailabilityChanged(false)
+                    }
                 },
                 ContextCompat.getMainExecutor(context)
             )
@@ -69,6 +75,35 @@ fun QrScannerPreview(
 
 @SuppressLint("UnsafeOptInUsageError")
 private fun bindCameraUseCases(
+    previewView: PreviewView,
+    cameraProvider: ProcessCameraProvider,
+    lifecycleOwner: LifecycleOwner,
+    cameraExecutor: ExecutorService,
+    enabled: Boolean,
+    torchEnabled: Boolean,
+    onTorchAvailabilityChanged: (Boolean) -> Unit,
+    onQrCodeDetected: (String) -> Unit
+) {
+    runCatching {
+        bindCameraUseCasesOrThrow(
+            previewView = previewView,
+            cameraProvider = cameraProvider,
+            lifecycleOwner = lifecycleOwner,
+            cameraExecutor = cameraExecutor,
+            enabled = enabled,
+            torchEnabled = torchEnabled,
+            onTorchAvailabilityChanged = onTorchAvailabilityChanged,
+            onQrCodeDetected = onQrCodeDetected
+        )
+    }.onFailure { throwable ->
+        Log.e("QrScannerPreview", "Failed to bind scanner camera use cases", throwable)
+        onTorchAvailabilityChanged(false)
+        cameraProvider.unbindAll()
+    }
+}
+
+@SuppressLint("UnsafeOptInUsageError")
+private fun bindCameraUseCasesOrThrow(
     previewView: PreviewView,
     cameraProvider: ProcessCameraProvider,
     lifecycleOwner: LifecycleOwner,

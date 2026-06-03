@@ -1,12 +1,22 @@
 <!--
  * @author: BC
  * @date: 26/04/01
- * @lastEditTime: 26/05/08
+ * @lastEditTime: 26/06/03
  * @description: 
  * @note: 
  * @version: 0.1.0
 -->
 
+
+# V1.4.0 26/06/03
+
+- 移除相同的第二属性排序
+- 😄: 更智能的库位推荐
+- APP瘦身
+- ADD: 在库位设置后增加校验
+- FIX: 修复安装界面logo显示错误
+- FIX: 修复无网络时手动增加物料闪退bug
+- FIX: 搜索访问受限
 
 # V1.3.2 26/05/08
 

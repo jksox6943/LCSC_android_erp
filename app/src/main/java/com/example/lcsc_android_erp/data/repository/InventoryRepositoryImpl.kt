@@ -17,11 +17,13 @@ import com.example.lcsc_android_erp.core.database.entity.StorageLocationEntity
 import com.example.lcsc_android_erp.domain.model.DashboardSummary
 import com.example.lcsc_android_erp.domain.model.ExistingStockLocation
 import com.example.lcsc_android_erp.domain.model.InboundRecord
+import com.example.lcsc_android_erp.domain.model.LocationCategoryProfile
 import com.example.lcsc_android_erp.domain.model.LocationInventoryItem
 import com.example.lcsc_android_erp.domain.model.SearchInventoryRecord
 import com.example.lcsc_android_erp.domain.model.StockLocationCell
 import com.example.lcsc_android_erp.domain.model.StorageLocation
 import com.example.lcsc_android_erp.domain.model.StorageLocationSortMode
+import com.example.lcsc_android_erp.domain.model.calculateDominantLocationCategoryProfile
 import com.example.lcsc_android_erp.domain.repository.InventoryRepository
 import java.io.File
 import kotlinx.coroutines.flow.Flow
@@ -112,6 +114,23 @@ class InventoryRepositoryImpl(
         }
     }
 
+    override fun observeLocationCategoryProfiles(): Flow<List<LocationCategoryProfile>> {
+        return storageLocationDao.observeAll().map { locations ->
+            locations.mapNotNull { location ->
+                if (location.inboundProfileUpdatedAt <= 0L) {
+                    null
+                } else {
+                    LocationCategoryProfile(
+                        locationId = location.id,
+                        category = location.inboundCategory,
+                        packageName = location.inboundPackageName,
+                        quantity = 1
+                    )
+                }
+            }
+        }
+    }
+
     override fun observeSearchInventoryRecords(): Flow<List<SearchInventoryRecord>> {
         return inventoryItemDao.observeSearchInventoryRecords().map { items ->
             items.map { item ->
@@ -145,6 +164,37 @@ class InventoryRepositoryImpl(
                 locationDisplayName = item.locationDisplayName,
                 quantity = item.quantity
             )
+        }
+    }
+
+    override suspend fun refreshMissingLocationCategoryProfiles() {
+        database.withTransaction {
+            storageLocationDao.findLocationsMissingInboundProfile().forEach { location ->
+                refreshLocationCategoryProfileInternal(location.id)
+            }
+        }
+    }
+
+    override suspend fun refreshAllLocationCategoryProfiles() {
+        database.withTransaction {
+            val profilesByLocation = inventoryItemDao.getAllLocationCategoryProfiles()
+                .map(::toLocationCategoryProfile)
+                .groupBy(LocationCategoryProfile::locationId)
+            storageLocationDao.getAll().forEach { location ->
+                val profile = calculateDominantLocationCategoryProfile(profilesByLocation[location.id].orEmpty())
+                storageLocationDao.updateInboundProfile(
+                    locationId = location.id,
+                    category = profile.category,
+                    packageName = profile.packageName,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        }
+    }
+
+    override suspend fun refreshLocationCategoryProfile(locationId: Long) {
+        database.withTransaction {
+            refreshLocationCategoryProfileInternal(locationId)
         }
     }
 
@@ -226,8 +276,16 @@ class InventoryRepositoryImpl(
                     createdAt = inboundAt
                 )
             )
+            refreshLocationCategoryProfileInternal(location.id)
         }
-        componentEnrichmentManager.schedule(preparedRecord.component.partNumber)
+        if (preparedRecord.sourceType == "MANUAL_INPUT") {
+            Log.d(
+                TAG,
+                "addInbound skip enrichment for manual input partNumber=${preparedRecord.component.partNumber}"
+            )
+        } else {
+            componentEnrichmentManager.schedule(preparedRecord.component.partNumber)
+        }
     }
 
     override suspend fun updateLocation(
@@ -295,6 +353,7 @@ class InventoryRepositoryImpl(
                 ?: return@withTransaction context.getString(R.string.inventory_error_location_not_found)
             inventoryTransactionDao.deleteByLocationId(location.id)
             inventoryItemDao.deleteByLocationId(location.id)
+            refreshLocationCategoryProfileInternal(location.id)
             storageLocationDao.deleteById(location.id)
             null
         }
@@ -330,6 +389,7 @@ class InventoryRepositoryImpl(
                     sourceRef = component?.partNumber
                 )
             )
+            refreshLocationCategoryProfileInternal(item.locationId)
             null
         }
     }
@@ -408,6 +468,8 @@ class InventoryRepositoryImpl(
                     sourceRef = component?.partNumber
                 )
             )
+            refreshLocationCategoryProfileInternal(item.locationId)
+            refreshLocationCategoryProfileInternal(targetLocation.id)
             null
         }
     }
@@ -428,8 +490,32 @@ class InventoryRepositoryImpl(
                     sourceRef = component?.partNumber
                 )
             )
+            refreshLocationCategoryProfileInternal(item.locationId)
             null
         }
+    }
+
+    private suspend fun refreshLocationCategoryProfileInternal(locationId: Long) {
+        val profile = calculateDominantLocationCategoryProfile(
+            inventoryItemDao.getLocationCategoryProfiles(locationId).map(::toLocationCategoryProfile)
+        )
+        storageLocationDao.updateInboundProfile(
+            locationId = locationId,
+            category = profile.category,
+            packageName = profile.packageName,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    private fun toLocationCategoryProfile(
+        projection: com.example.lcsc_android_erp.core.database.model.LocationCategoryProfileProjection
+    ): LocationCategoryProfile {
+        return LocationCategoryProfile(
+            locationId = projection.locationId,
+            category = projection.category,
+            packageName = projection.packageName,
+            quantity = projection.quantity
+        )
     }
 
     private suspend fun findOrCreateLocation(code: String): StorageLocationEntity {

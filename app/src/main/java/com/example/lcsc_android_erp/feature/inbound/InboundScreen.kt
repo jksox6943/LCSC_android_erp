@@ -102,11 +102,14 @@ import com.example.lcsc_android_erp.core.ui.clearFocusOnTapOutside
 import com.example.lcsc_android_erp.core.ui.performCopyFeedback
 import com.example.lcsc_android_erp.domain.model.ComponentDetail
 import com.example.lcsc_android_erp.domain.model.ExistingStockLocation
+import com.example.lcsc_android_erp.domain.model.LocationCategoryProfile
 import com.example.lcsc_android_erp.domain.model.StorageLocation
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import kotlinx.coroutines.launch
+
+private const val MANUAL_INBOUND_DEFAULT_LOCATION_CODE = "A1"
 
 @Composable
 fun InboundRoute(
@@ -248,11 +251,7 @@ fun InboundScreen(
         }
     }
     val normalizedManualPartNumber = remember(manualPartNumber) { manualPartNumber.trim().uppercase() }
-    val resolvedManualLocationCode = manualLocationCode.ifBlank {
-        uiState.defaultLocationCode
-            ?: uiState.locations.firstOrNull()?.code
-            ?: "A1"
-    }
+    val resolvedManualLocationCode = manualLocationCode.ifBlank { MANUAL_INBOUND_DEFAULT_LOCATION_CODE }
     val resolvedManualLocationLabel = uiState.locations
         .firstOrNull { it.code == resolvedManualLocationCode }
         ?.let { location ->
@@ -310,12 +309,7 @@ fun InboundScreen(
         manualSpecLines = component.specifications.entries.joinToString("\n") { (key, value) ->
             "$key=$value"
         }
-        manualLocationCode = suggestInboundLocationCode(
-            category = component.category,
-            existingStockLocations = emptyList(),
-            availableLocations = uiState.locations,
-            fallbackCode = uiState.defaultLocationCode ?: "A1"
-        )
+        manualLocationCode = manualLocationCode.ifBlank { MANUAL_INBOUND_DEFAULT_LOCATION_CODE }
         manualEntryError = null
     }
 
@@ -361,9 +355,10 @@ fun InboundScreen(
                 initialQuantity = payload?.quantity ?: 1,
                 quantityEditable = true,
                 initialLocation = suggestInboundLocationCode(
-                    category = component.category,
+                    component = component,
                     existingStockLocations = uiState.existingStockByPartNumber[component.partNumber].orEmpty(),
                     availableLocations = uiState.locations,
+                    locationCategoryProfiles = uiState.locationCategoryProfiles,
                     fallbackCode = uiState.defaultLocationCode ?: "A1"
                 ),
                 availableLocations = uiState.locations,
@@ -412,9 +407,7 @@ fun InboundScreen(
             manualImageLocalPath = ""
             manualImageUrl = ""
             manualEntryError = null
-            manualLocationCode = uiState.defaultLocationCode
-                ?: uiState.locations.firstOrNull()?.code
-                ?: "A1"
+            manualLocationCode = MANUAL_INBOUND_DEFAULT_LOCATION_CODE
         }
         dialogState = null
         onContinueScanning()
@@ -561,9 +554,10 @@ fun InboundScreen(
                                     initialQuantity = 0,
                                     quantityEditable = true,
                                     initialLocation = suggestInboundLocationCode(
-                                        category = component.category,
+                                        component = component,
                                         existingStockLocations = uiState.existingStockByPartNumber[component.partNumber].orEmpty(),
                                         availableLocations = uiState.locations,
+                                        locationCategoryProfiles = uiState.locationCategoryProfiles,
                                         fallbackCode = uiState.defaultLocationCode ?: "A1"
                                     ),
                                     availableLocations = uiState.locations,
@@ -670,9 +664,7 @@ fun InboundScreen(
                                         manualSpecLines = ""
                                         manualSpecEditorVisible = false
                                         manualEntryError = null
-                                        manualLocationCode = uiState.defaultLocationCode
-                                            ?: uiState.locations.firstOrNull()?.code
-                                            ?: "A1"
+                                        manualLocationCode = MANUAL_INBOUND_DEFAULT_LOCATION_CODE
                                     }
                                 }
                             )
@@ -1807,25 +1799,27 @@ private val inboundCategoryLocationMappings = listOf(
 )
 
 private fun suggestInboundLocationCode(
-    category: String?,
+    component: ComponentDetail,
     existingStockLocations: List<ExistingStockLocation>,
     availableLocations: List<StorageLocation>,
+    locationCategoryProfiles: List<LocationCategoryProfile>,
     fallbackCode: String
 ): String {
+    Log.d(
+        INBOUND_SCREEN_TAG,
+        "suggestInboundLocationCode start partNumber=${component.partNumber}, category=${component.category}, packageName=${component.packageName}, fallbackCode=$fallbackCode, existingStockLocations=${existingStockLocations.map { it.locationCode }}, availableLocations=${availableLocations.map { it.code }}, locationCategoryProfiles=$locationCategoryProfiles"
+    )
     existingStockLocations.firstOrNull { existing ->
         availableLocations.any { location ->
             location.code.equals(existing.locationCode, ignoreCase = true)
         }
-    }?.let { return it.locationCode }
-
-    val normalizedCategory = category?.trim().orEmpty()
-    if (normalizedCategory.isEmpty()) {
-        return fallbackCode
+    }?.let { existing ->
+        Log.d(
+            INBOUND_SCREEN_TAG,
+            "suggestInboundLocationCode matched existingStock partNumber=${component.partNumber}, locationCode=${existing.locationCode}"
+        )
+        return existing.locationCode
     }
-
-    val mapping = inboundCategoryLocationMappings.firstOrNull { rule ->
-        rule.keywords.any { keyword -> normalizedCategory.contains(keyword, ignoreCase = true) }
-    } ?: return fallbackCode
 
     val sortedLocations = availableLocations.sortedWith(
         compareBy<StorageLocation>(
@@ -1834,19 +1828,110 @@ private fun suggestInboundLocationCode(
             { it.code }
         )
     )
+    val locationCategoryLookup = buildLocationCategoryLookup(locationCategoryProfiles)
+    val componentCategory = component.category.normalizedInboundProfileValue()
+    if (componentCategory != null) {
+        val categoryMatchedLocations = sortedLocations.filter { location ->
+            locationCategoryLookup[location.id]?.category == componentCategory
+        }
+        when (categoryMatchedLocations.size) {
+            0 -> Unit
+            1 -> {
+                val location = categoryMatchedLocations.first()
+                Log.d(
+                    INBOUND_SCREEN_TAG,
+                    "suggestInboundLocationCode matched locationProfileCategory partNumber=${component.partNumber}, locationCode=${location.code}, profile=${locationCategoryLookup[location.id]}"
+                )
+                return location.code
+            }
+            else -> {
+                val componentPackageName = component.packageName.normalizedInboundProfileValue()
+                val packageMatchedLocation = componentPackageName?.let { packageName ->
+                    categoryMatchedLocations.firstOrNull { location ->
+                        locationCategoryLookup[location.id]?.packageName == packageName
+                    }
+                }
+                if (packageMatchedLocation != null) {
+                    Log.d(
+                        INBOUND_SCREEN_TAG,
+                        "suggestInboundLocationCode matched locationProfileCategoryPackage partNumber=${component.partNumber}, locationCode=${packageMatchedLocation.code}, category=$componentCategory, packageName=$componentPackageName, profile=${locationCategoryLookup[packageMatchedLocation.id]}"
+                    )
+                    return packageMatchedLocation.code
+                }
+                val fallbackLocation = categoryMatchedLocations.first()
+                Log.d(
+                    INBOUND_SCREEN_TAG,
+                    "suggestInboundLocationCode matched locationProfileCategoryFallback partNumber=${component.partNumber}, locationCode=${fallbackLocation.code}, category=$componentCategory, packageName=$componentPackageName, matchedLocationCodes=${categoryMatchedLocations.map { it.code }}"
+                )
+                return fallbackLocation.code
+            }
+        }
+    }
+
+    val normalizedCategory = component.category?.trim().orEmpty()
+    if (normalizedCategory.isEmpty()) {
+        Log.d(
+            INBOUND_SCREEN_TAG,
+            "suggestInboundLocationCode fallback emptyCategory partNumber=${component.partNumber}, locationCode=$fallbackCode"
+        )
+        return fallbackCode
+    }
+
+    val mapping = inboundCategoryLocationMappings.firstOrNull { rule ->
+        rule.keywords.any { keyword -> normalizedCategory.contains(keyword, ignoreCase = true) }
+    } ?: run {
+        Log.d(
+            INBOUND_SCREEN_TAG,
+            "suggestInboundLocationCode fallback noCategoryMapping partNumber=${component.partNumber}, category=$normalizedCategory, locationCode=$fallbackCode"
+        )
+        return fallbackCode
+    }
 
     sortedLocations.firstOrNull { location ->
         location.code.trim().uppercase().startsWith(mapping.prefix)
-    }?.let { return it.code }
+    }?.let { location ->
+        Log.d(
+            INBOUND_SCREEN_TAG,
+            "suggestInboundLocationCode matched categoryPrefix partNumber=${component.partNumber}, category=$normalizedCategory, prefix=${mapping.prefix}, locationCode=${location.code}"
+        )
+        return location.code
+    }
 
-    sortedLocations.firstOrNull { location ->
-        location.displayName
-            ?.trim()
-            ?.uppercase()
-            ?.startsWith(mapping.prefix) == true
-    }?.let { return it.code }
+    val mappedFallback = mapping.prefix + "1"
+    Log.d(
+        INBOUND_SCREEN_TAG,
+        "suggestInboundLocationCode fallback mappedPrefixDefault partNumber=${component.partNumber}, category=$normalizedCategory, prefix=${mapping.prefix}, locationCode=$mappedFallback"
+    )
+    return mappedFallback
+}
 
-    return mapping.prefix + "1"
+private data class InboundLocationCategoryProfile(
+    val category: String?,
+    val packageName: String?
+)
+
+private fun buildLocationCategoryLookup(
+    profiles: List<LocationCategoryProfile>
+): Map<Long, InboundLocationCategoryProfile> {
+    return profiles.mapNotNull { profile ->
+        val category = profile.category.normalizedInboundProfileValue()
+        val packageName = profile.packageName.normalizedInboundProfileValue()
+        if (category == null && packageName == null) {
+            null
+        } else {
+            profile.locationId to InboundLocationCategoryProfile(
+                category = category,
+                packageName = packageName
+            )
+        }
+    }.toMap()
+}
+
+private fun String?.normalizedInboundProfileValue(): String? {
+    return this
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.uppercase(Locale.ROOT)
 }
 
 @Composable

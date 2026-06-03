@@ -54,6 +54,31 @@ interface StorageLocationDao {
     @Update
     suspend fun update(location: StorageLocationEntity)
 
+    @Query(
+        """
+        UPDATE storage_location
+        SET inbound_category = :category,
+            inbound_package_name = :packageName,
+            inbound_profile_updated_at = :updatedAt
+        WHERE id = :locationId
+        """
+    )
+    suspend fun updateInboundProfile(
+        locationId: Long,
+        category: String?,
+        packageName: String?,
+        updatedAt: Long
+    )
+
+    @Query(
+        """
+        SELECT * FROM storage_location
+        WHERE inbound_profile_updated_at = 0
+        ORDER BY code ASC
+        """
+    )
+    suspend fun findLocationsMissingInboundProfile(): List<StorageLocationEntity>
+
     @Query("DELETE FROM storage_location WHERE id = :locationId")
     suspend fun deleteById(locationId: Long)
 

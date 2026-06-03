@@ -85,6 +85,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -311,6 +312,7 @@ fun InventoryScreen(
     if (addLocationDialogVisible) {
         AddLocationDialog(
             errorMessage = uiState.addLocationError,
+            existingLocations = uiState.locations,
             recentLocationColors = uiState.recentLocationColors,
             onDismiss = {
                 onClearAddLocationError()
@@ -329,6 +331,7 @@ fun InventoryScreen(
         LocationSettingsDialog(
             cell = cell,
             errorMessage = uiState.updateLocationError,
+            existingLocations = uiState.locations,
             availableSecondaryAttributes = uiState.settingsLocationSortAttributes,
             recentLocationColors = uiState.recentLocationColors,
             onDismiss = {
@@ -376,6 +379,7 @@ fun InventoryScreen(
 @Composable
 private fun AddLocationDialog(
     errorMessage: String?,
+    existingLocations: List<StorageLocation>,
     recentLocationColors: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (String, String?, String?) -> Unit,
@@ -385,6 +389,17 @@ private fun AddLocationDialog(
     var displayName by remember { mutableStateOf("") }
     var colorHex by remember { mutableStateOf("") }
     var showColorWheelDialog by remember { mutableStateOf(false) }
+    var codeFieldHadFocus by remember { mutableStateOf(false) }
+    var codeValidationRequested by remember { mutableStateOf(false) }
+    val locationCodeFormatError = stringResource(R.string.inventory_error_location_code_format)
+    val locationCodeExistsError = stringResource(R.string.inventory_error_location_code_exists)
+    val codeValidationError = validateLocationCodeInput(
+        code = locationCode,
+        existingLocations = existingLocations,
+        currentLocationId = null,
+        formatError = locationCodeFormatError,
+        existsError = locationCodeExistsError
+    ).takeIf { codeValidationRequested }
     val quickColors = remember(recentLocationColors) { buildLocationQuickColors(recentLocationColors) }
 
     AlertDialog(
@@ -394,11 +409,32 @@ private fun AddLocationDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = locationCode,
-                    onValueChange = { locationCode = it.uppercase().filter { ch -> ch.isLetterOrDigit() } },
-                    modifier = Modifier.fillMaxWidth(),
+                    onValueChange = {
+                        locationCode = it.uppercase().filter { ch -> ch.isLetterOrDigit() }
+                        if (codeValidationRequested && validateLocationCodeInput(
+                                code = locationCode,
+                                existingLocations = existingLocations,
+                                currentLocationId = null,
+                                formatError = locationCodeFormatError,
+                                existsError = locationCodeExistsError
+                            ) == null
+                        ) {
+                            codeValidationRequested = false
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                codeFieldHadFocus = true
+                            } else if (codeFieldHadFocus) {
+                                codeValidationRequested = true
+                            }
+                        },
                     label = { Text(text = stringResource(R.string.inventory_add_location_label)) },
+                    isError = codeValidationError != null,
                     supportingText = {
-                        Text(text = stringResource(R.string.inventory_add_location_hint))
+                        Text(text = codeValidationError ?: stringResource(R.string.inventory_add_location_hint))
                     }
                 )
                 OutlinedTextField(
@@ -452,7 +488,20 @@ private fun AddLocationDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(locationCode, displayName, colorHex) }) {
+            Button(onClick = {
+                val validationError = validateLocationCodeInput(
+                    code = locationCode,
+                    existingLocations = existingLocations,
+                    currentLocationId = null,
+                    formatError = locationCodeFormatError,
+                    existsError = locationCodeExistsError
+                )
+                if (validationError != null) {
+                    codeValidationRequested = true
+                    return@Button
+                }
+                onConfirm(locationCode, displayName, colorHex)
+            }) {
                 Text(text = stringResource(R.string.common_confirm))
             }
         },
@@ -859,6 +908,7 @@ private fun InventoryLocationDetailScreen(
         LocationSettingsDialog(
             cell = cell,
             errorMessage = uiState.updateLocationError,
+            existingLocations = uiState.locations,
             availableSecondaryAttributes = supportedSortAttributes(items, cell.sortMode),
             recentLocationColors = uiState.recentLocationColors,
             onDismiss = {
@@ -1366,6 +1416,7 @@ private fun SortModeOption(
 private fun LocationSettingsDialog(
     cell: StockLocationCell,
     errorMessage: String?,
+    existingLocations: List<StorageLocation>,
     availableSecondaryAttributes: List<String>,
     recentLocationColors: List<String>,
     onDismiss: () -> Unit,
@@ -1381,6 +1432,17 @@ private fun LocationSettingsDialog(
     var showColorWheelDialog by remember(cell.id) { mutableStateOf(false) }
     var deleteSubmitted by remember(cell.id) { mutableStateOf(false) }
     var deleteBlockedMessage by remember(cell.id) { mutableStateOf<String?>(null) }
+    var codeFieldHadFocus by remember(cell.id) { mutableStateOf(false) }
+    var codeValidationRequested by remember(cell.id) { mutableStateOf(false) }
+    val locationCodeFormatError = stringResource(R.string.inventory_error_location_code_format)
+    val locationCodeExistsError = stringResource(R.string.inventory_error_location_code_exists)
+    val codeValidationError = validateLocationCodeInput(
+        code = code,
+        existingLocations = existingLocations,
+        currentLocationId = cell.id,
+        formatError = locationCodeFormatError,
+        existsError = locationCodeExistsError
+    ).takeIf { codeValidationRequested }
     val quickColors = remember(recentLocationColors) { buildLocationQuickColors(recentLocationColors) }
     val specificationSortOptions = remember(availableSecondaryAttributes, sortPriorities) {
         buildList {
@@ -1416,9 +1478,31 @@ private fun LocationSettingsDialog(
                     value = code,
                     onValueChange = {
                         code = it.uppercase().filter { ch -> ch.isLetterOrDigit() }
+                        if (codeValidationRequested && validateLocationCodeInput(
+                                code = code,
+                                existingLocations = existingLocations,
+                                currentLocationId = cell.id,
+                                formatError = locationCodeFormatError,
+                                existsError = locationCodeExistsError
+                            ) == null
+                        ) {
+                            codeValidationRequested = false
+                        }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(text = stringResource(R.string.inventory_location_code)) }
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                codeFieldHadFocus = true
+                            } else if (codeFieldHadFocus) {
+                                codeValidationRequested = true
+                            }
+                        },
+                    label = { Text(text = stringResource(R.string.inventory_location_code)) },
+                    isError = codeValidationError != null,
+                    supportingText = {
+                        codeValidationError?.let { Text(text = it) }
+                    }
                 )
                 OutlinedTextField(
                     value = displayName,
@@ -1538,6 +1622,17 @@ private fun LocationSettingsDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    val validationError = validateLocationCodeInput(
+                        code = code,
+                        existingLocations = existingLocations,
+                        currentLocationId = cell.id,
+                        formatError = locationCodeFormatError,
+                        existsError = locationCodeExistsError
+                    )
+                    if (validationError != null) {
+                        codeValidationRequested = true
+                        return@Button
+                    }
                     onSave(
                         code,
                         displayName,
@@ -1850,17 +1945,34 @@ private fun supportedSortAttributes(
     currentSortMode: String
 ): List<String> {
     return buildList {
-        items.asSequence()
-            .flatMap { it.specifications.keys.asSequence() }
+        items
+            .asSequence()
+            .flatMap { item -> item.specifications.keys.asSequence() }
             .map(String::trim)
-            .filter { it.isNotEmpty() }
             .distinct()
+            .filter { key -> key.isNotEmpty() && hasMultipleSpecificationValues(items, key) }
             .sorted()
             .forEach(::add)
         StorageLocationSortMode.specificationKey(currentSortMode)
             ?.takeIf { it.isNotBlank() && it !in this }
             ?.let(::add)
     }
+}
+
+private fun hasMultipleSpecificationValues(
+    items: List<LocationInventoryItem>,
+    specificationKey: String
+): Boolean {
+    return items
+        .asSequence()
+        .mapNotNull { item ->
+            item.specifications[specificationKey]
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        }
+        .distinct()
+        .take(2)
+        .count() > 1
 }
 
 private fun toggleSortPriority(
@@ -1895,6 +2007,27 @@ private fun buildLocationQuickColors(recentLocationColors: List<String>): List<S
             .take(5)
             .forEach { add(it.uppercase(Locale.ROOT)) }
     }
+}
+
+private fun isValidLocationCode(code: String): Boolean {
+    return code.trim().uppercase().matches(Regex("^[A-Z]\\d+$"))
+}
+
+private fun validateLocationCodeInput(
+    code: String,
+    existingLocations: List<StorageLocation>,
+    currentLocationId: Long?,
+    formatError: String,
+    existsError: String
+): String? {
+    val normalizedCode = code.trim().uppercase(Locale.ROOT)
+    if (!isValidLocationCode(normalizedCode)) {
+        return formatError
+    }
+    val duplicated = existingLocations.any { location ->
+        location.id != currentLocationId && location.code.equals(normalizedCode, ignoreCase = true)
+    }
+    return if (duplicated) existsError else null
 }
 
 private fun initialHue(colorHex: String): Float {

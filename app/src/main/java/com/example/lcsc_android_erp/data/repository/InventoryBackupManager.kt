@@ -2,6 +2,7 @@ package com.example.lcsc_android_erp.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
@@ -14,7 +15,9 @@ import com.example.lcsc_android_erp.core.database.entity.ComponentEntity
 import com.example.lcsc_android_erp.core.database.entity.InventoryItemEntity
 import com.example.lcsc_android_erp.core.database.entity.StorageLocationEntity
 import com.example.lcsc_android_erp.core.datastore.UserPreferencesRepository
+import com.example.lcsc_android_erp.domain.model.LocationCategoryProfile
 import com.example.lcsc_android_erp.domain.model.StorageLocationSortMode
+import com.example.lcsc_android_erp.domain.model.calculateDominantLocationCategoryProfile
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +46,10 @@ class InventoryBackupManager(
     private val componentImageStore: ComponentImageStore,
     private val userPreferencesRepository: UserPreferencesRepository
 ) {
+    private companion object {
+        const val TAG = "InventoryBackupManager"
+    }
+
     private data class ImportedComponentRow(
         val entity: ComponentEntity,
         val requiresEnrichment: Boolean
@@ -232,6 +239,7 @@ class InventoryBackupManager(
                     if (inventoryItems.isNotEmpty()) {
                         inventoryItemDao.insertAll(inventoryItems)
                     }
+                    refreshAllLocationCategoryProfilesInternal()
                 }
                 if (recentLocationColors.isNotEmpty()) {
                     userPreferencesRepository.setRecentLocationColors(recentLocationColors)
@@ -244,6 +252,7 @@ class InventoryBackupManager(
                 null
             }
         }.getOrElse { throwable ->
+            Log.e(TAG, "importFromUri failed", throwable)
             throwable.message ?: context.getString(R.string.settings_backup_import_failed)
         }
     }
@@ -275,6 +284,28 @@ class InventoryBackupManager(
                 sortMode = row.stringOrNull("sortMode") ?: StorageLocationSortMode.NONE,
                 remark = row.stringOrNull("remark"),
                 createdAt = row.long("createdAt")
+            )
+        }
+    }
+
+    private suspend fun refreshAllLocationCategoryProfilesInternal() {
+        val profilesByLocation = inventoryItemDao.getAllLocationCategoryProfiles()
+            .map { projection ->
+                LocationCategoryProfile(
+                    locationId = projection.locationId,
+                    category = projection.category,
+                    packageName = projection.packageName,
+                    quantity = projection.quantity
+                )
+            }
+            .groupBy(LocationCategoryProfile::locationId)
+        storageLocationDao.getAll().forEach { location ->
+            val profile = calculateDominantLocationCategoryProfile(profilesByLocation[location.id].orEmpty())
+            storageLocationDao.updateInboundProfile(
+                locationId = location.id,
+                category = profile.category,
+                packageName = profile.packageName,
+                updatedAt = System.currentTimeMillis()
             )
         }
     }

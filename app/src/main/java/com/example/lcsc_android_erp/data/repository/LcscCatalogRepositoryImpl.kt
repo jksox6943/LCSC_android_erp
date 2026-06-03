@@ -123,7 +123,8 @@ class LcscCatalogRepositoryImpl(
             brand = sanitizeSearchText(searchRecord.optStringOrNull("lightBrandName"))
                 ?: sanitizeSearchText(product.optStringOrNull("productGradePlateName")),
             packageName = sanitizeSearchText(searchRecord.optStringOrNull("lightStandard"))
-                ?: sanitizeSearchText(product.optStringOrNull("encapsulationModel")),
+                ?: sanitizeSearchText(product.optStringOrNull("encapsulationModel"))
+                ?: extractPackageNameFromSearchParams(searchParams),
             category = category,
             description = sanitizeSearchText(product.optStringOrNull("remark"))
                 ?: sanitizeSearchText(searchRecord.optStringOrNull("lightProductIntro")),
@@ -160,6 +161,22 @@ class LcscCatalogRepositoryImpl(
         return candidate.ifBlank { fallbackName ?: baseName }
     }
 
+    private fun extractPackageNameFromSearchParams(searchParams: Map<String, String>): String? {
+        val exactKeyMatch = searchParams.entries.firstOrNull { (key, _) ->
+            key.trim() in packageParameterKeys
+        }?.value
+        if (!exactKeyMatch.isNullOrBlank()) {
+            return exactKeyMatch
+        }
+
+        return searchParams.entries.firstOrNull { (key, _) ->
+            val normalizedKey = key.trim().lowercase()
+            packageParameterKeys.any { candidate ->
+                normalizedKey.contains(candidate.lowercase())
+            }
+        }?.value
+    }
+
     private fun sanitizeSearchText(value: String?): String? {
         return value
             ?.let { Jsoup.parse(it).text() }
@@ -187,7 +204,18 @@ class LcscCatalogRepositoryImpl(
     ) {
         Log.d(
             TAG,
-            "parsed[$source]: keyword=$keyword, partNumber=${detail.partNumber}, name=${detail.name}, brand=${detail.brand}, package=${detail.packageName}, category=${detail.category}, secondAttrCount=${detail.specifications.size}, imageUrl=${detail.imageUrl}"
+            "parsed[$source]: keyword=$keyword, partNumber=${detail.partNumber}, name=${detail.name}, brand=${detail.brand}, packageName=${detail.packageName}, category=${detail.category}, secondAttrCount=${detail.specifications.size}, imageUrl=${detail.imageUrl}"
         )
     }
+
+    private val packageParameterKeys = setOf(
+        "封装",
+        "封装规格",
+        "商品封装",
+        "安装类型",
+        "Package",
+        "Package / Case",
+        "Case",
+        "Footprint"
+    )
 }

@@ -509,12 +509,28 @@ class InventoryViewModel(
     private fun supportedSpecificationKeys(items: List<LocationInventoryItem>): List<String> {
         return items
             .asSequence()
-            .flatMap { it.specifications.keys.asSequence() }
+            .flatMap { item -> item.specifications.keys.asSequence() }
             .map(String::trim)
-            .filter { it.isNotEmpty() }
             .distinct()
+            .filter { key -> key.isNotEmpty() && hasMultipleSpecificationValues(items, key) }
             .sorted()
             .toList()
+    }
+
+    private fun hasMultipleSpecificationValues(
+        items: List<LocationInventoryItem>,
+        specificationKey: String
+    ): Boolean {
+        return items
+            .asSequence()
+            .mapNotNull { item ->
+                item.specifications[specificationKey]
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            }
+            .distinct()
+            .take(2)
+            .count() > 1
     }
 
     private fun primarySortKey(item: LocationInventoryItem): String {

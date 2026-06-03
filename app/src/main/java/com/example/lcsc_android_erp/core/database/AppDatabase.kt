@@ -19,7 +19,7 @@ import com.example.lcsc_android_erp.core.database.entity.StorageLocationEntity
         InventoryItemEntity::class,
         InventoryTransactionEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

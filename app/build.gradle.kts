@@ -39,10 +39,14 @@ android {
         applicationId = "com.example.lcsc_android_erp"
         minSdk = 29
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.3.2"
+        versionCode = 6
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -59,6 +63,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            isShrinkResources = false
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }

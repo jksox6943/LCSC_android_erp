@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
+import androidx.room.withTransaction
 import com.example.lcsc_android_erp.core.database.AppDatabase
 import com.example.lcsc_android_erp.core.datastore.UserPreferencesRepository
 import com.example.lcsc_android_erp.core.printer.Q5PrinterManager
@@ -14,6 +15,8 @@ import com.example.lcsc_android_erp.data.repository.ComponentImageStore
 import com.example.lcsc_android_erp.data.repository.InventoryBackupManager
 import com.example.lcsc_android_erp.data.repository.InventoryRepositoryImpl
 import com.example.lcsc_android_erp.data.repository.LcscCatalogRepositoryImpl
+import com.example.lcsc_android_erp.domain.model.LocationCategoryProfile
+import com.example.lcsc_android_erp.domain.model.calculateDominantLocationCategoryProfile
 import com.example.lcsc_android_erp.domain.repository.InventoryRepository
 import com.example.lcsc_android_erp.domain.repository.LcscCatalogRepository
 import java.io.File
@@ -22,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import com.example.lcsc_android_erp.core.database.DatabaseMigrations
 
 class AppContainer(context: Context) {
     val appContext: Context = context.applicationContext
@@ -30,7 +34,7 @@ class AppContainer(context: Context) {
         appContext,
         AppDatabase::class.java,
         "lcsc_erp.db"
-    ).fallbackToDestructiveMigration(dropAllTables = true).build()
+    ).addMigrations(*DatabaseMigrations.ALL).build()
 
     private val preferencesDataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
         scope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
@@ -57,7 +61,33 @@ class AppContainer(context: Context) {
         lcscCatalogRepository = LcscCatalogRepositoryImpl(
             remoteDataSource = LcscCatalogRemoteDataSource(okHttpClient)
         ),
-        componentImageStore = componentImageStore
+        componentImageStore = componentImageStore,
+        onComponentEnriched = { componentId ->
+            database.withTransaction {
+                database.inventoryItemDao()
+                    .getLocationIdsByComponent(componentId)
+                    .forEach { locationId ->
+                        val profile = calculateDominantLocationCategoryProfile(
+                            database.inventoryItemDao()
+                                .getLocationCategoryProfiles(locationId)
+                                .map { projection ->
+                                    LocationCategoryProfile(
+                                        locationId = projection.locationId,
+                                        category = projection.category,
+                                        packageName = projection.packageName,
+                                        quantity = projection.quantity
+                                    )
+                                }
+                        )
+                        database.storageLocationDao().updateInboundProfile(
+                            locationId = locationId,
+                            category = profile.category,
+                            packageName = profile.packageName,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    }
+            }
+        }
     )
 
     val inventoryRepository: InventoryRepository = InventoryRepositoryImpl(
