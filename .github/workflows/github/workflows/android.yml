@@ -1,0 +1,39 @@
+name: Build Android APK
+
+# 触发条件：当推送到 main 或 master 分支，或者手动触发时
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 允许你在 Actions 页面手动点击按钮运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. 拉取仓库代码
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. 设置 JDK 环境（Android 编译必需）
+    - name: set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    # 3. 给 Gradle 脚本赋予执行权限
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    # 4. 编译 Debug 版 APK（如果是自己用，Debug 版最省事，不需要配置签名）
+    - name: Build with Gradle
+      run: ./gradlew assembleDebug
+
+    # 5. 将编译好的 APK 上传到 GitHub Actions 产物中
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: my-android-app-apk
+        path: app/build/outputs/apk/debug/*.apk
